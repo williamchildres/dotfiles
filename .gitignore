@@ -5,6 +5,8 @@
 **/GPUCache/
 
 # pywal output (usually machine-specific)
+hypr/.config/hypr/wal-colors.conf
+hypr/.config/hypr/wal-hyprlock.conf
 **/.cache/wal/
 
 # logs
