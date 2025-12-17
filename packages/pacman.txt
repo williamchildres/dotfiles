@@ -1,0 +1,42 @@
+# Core
+git
+stow
+base-devel
+curl
+jq
+
+# Hyprland + idle/lock
+hyprland
+hypridle
+hyprlock
+
+# Bar / launcher / UI
+waybar
+kitty
+swaync
+wlogout
+
+# Audio
+pipewire
+wireplumber
+pavucontrol
+playerctl
+
+# Network
+networkmanager
+
+# Clipboard + screenshots
+wl-clipboard
+grim
+slurp
+satty
+
+# Tools
+neovim
+btop
+fastfetch
+
+# Theming / fonts
+python-pywal
+ttf-hack-nerd
+
