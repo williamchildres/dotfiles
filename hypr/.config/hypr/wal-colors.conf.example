@@ -1,0 +1,10 @@
+# Generated from pywal. Do not edit.
+
+$col_bg       = 0xff090708
+$col_active   = 0xff9E6F8D
+$col_inactive = 0xffE26F76
+
+general {
+  col.active_border         = $col_active
+  col.inactive_border       = $col_inactive
+}

@@ -1,0 +1,8 @@
+# Generated from pywal. Do not edit.
+
+$hl_bg      = rgba(090708ff)
+$hl_fg      = rgba(edc2c4ff)
+$hl_active  = rgba(9E6F8Dff)
+$hl_bad     = rgba(E26F76ff)
+$hl_ok      = rgba(FC9372ff)
+

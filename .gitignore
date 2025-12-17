@@ -4,6 +4,9 @@
 **/Cache/
 **/GPUCache/
 
+# Per-machine monitor layout
+hypr/.config/hypr/monitors.local.conf
+
 # pywal output (usually machine-specific)
 hypr/.config/hypr/wal-colors.conf
 hypr/.config/hypr/wal-hyprlock.conf
