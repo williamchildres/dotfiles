@@ -26,10 +26,17 @@ cd ~/dotfiles
 ./install.sh
 ```
 
-## This will: 
+## This will 
 1. Install dependencies from packages/pacman.txt and packages/aur.txt
 2. Back up conflicting existing configs to ~/.dodtfiles-backup/<timestamp>
 3. Symlink configs into place via 'stow'
+
+## Keybinds
+### Review 'hyprland.conf' for all keybinds, but basics are:
+- Super + W: Run setwal scripts to pick wallpaper (assumes you have a Pictures/wallpapers dir), this will then run pywal and generate theme colors based on your wallpaper
+- Super + M: Opens app menu/launcher (walker)
+- Super + B: Browser (Assumes zen browser is installed)
+- Super + RETURN: Kitty Terminal
 
 ## Updating
 ``` bash
