@@ -1,0 +1,180 @@
+/* Pull colors from pywal (generated when you run `wal`) */
+@import url("file:///home/william/.cache/wal/colors-waybar.css");
+/* If that ever fails, switch to:
+   @import url("file:///home/william/.cache/wal/colors.css");
+*/
+
+* {
+    font-family: "Hack Nerd Font", "Hack Nerd Font Mono", sans-serif;
+    font-size: 13px;
+}
+
+/* --- Make the full-width Waybar window invisible --- */
+window#waybar {
+    background: transparent;
+    color: @foreground;
+    padding: 0;
+    border-radius: 0;
+}
+
+/* Hide while hidden (e.g., autohide) */
+window#waybar.hidden {
+    opacity: 0.0;
+}
+
+/* --- 3 floating rounded sections (left / center / right) --- */
+.modules-left,
+.modules-center,
+.modules-right {
+    /* Slightly lighter than wallpaper for dark themes */
+    background-color: alpha(@background, 0.78);
+
+    border-radius: 14px;
+    padding: 2px 10px;
+    margin: 4px 6px;
+
+    /* Subtle edge + depth so it reads as a pill */
+    border: 1px solid alpha(@foreground, 0.10);
+    box-shadow: 0 6px 18px alpha(#000000, 0.35);
+}
+
+/* --- Module spacing inside containers --- */
+#workspaces,
+#window,
+#clock,
+#pulseaudio,
+#network,
+#battery,
+#tray,
+#custom-power,
+#custom-powerprofile {
+    padding: 0 6px;
+}
+
+/* --- Workspaces: pill-style --- */
+#workspaces {
+    margin: 0 4px;
+}
+
+#workspaces button {
+    background: transparent;
+    border: none;
+    margin: 0 2px;
+
+    /* Nudge glyphs left */
+    padding-left: 5px;
+    padding-right: 9px; /* more right padding => content shifts left */
+    padding-top: 1px;
+    padding-bottom: 0px;
+
+    color: @foreground;
+}
+
+#workspaces button.active {
+    background: @color2;
+    color: @background;
+    border-radius: 999px;
+}
+
+#workspaces button.urgent {
+    background: @color1;
+    color: @background;
+    border-radius: 999px;
+}
+
+#workspaces button:hover {
+    background-color: @color0;
+}
+
+/* --- Window title --- */
+#window {
+    color: @foreground;
+}
+
+/* --- Clock --- */
+#clock {
+    color: @foreground;
+}
+
+/* --- Keep Awake --- */
+#idle_inhibitor {
+  color: @foreground;
+  padding: 0 6px;     /* match other modules */
+  min-width: 0;
+}
+
+/* --- Performance (group drawer) --- */
+#group-perf {
+  padding: 0 6px;     /* keep the whole group aligned with others */
+}
+
+/* the collapsed perf icon */
+#custom-perf {
+  color: @foreground;
+  padding: 0 6px;
+}
+
+#cpu, #memory, #disk {
+    color: @foreground;
+    margin-left: 10px;
+    padding: 0 6px; 
+}
+
+/* --- Audio --- */
+#pulseaudio {
+    color: @foreground;
+}
+
+#pulseaudio.muted {
+    color: @color1;
+}
+
+/* --- Network --- */
+#network {
+    color: @foreground;
+}
+
+#network.disconnected {
+    color: @color1;
+}
+
+/* --- Battery --- */
+#battery {
+    color: @foreground;
+}
+
+#battery.warning {
+    color: @color3;
+}
+
+#battery.critical {
+    color: @color1;
+}
+
+/* --- System tray --- */
+#tray {
+    color: @foreground;
+}
+
+/* --- Power: plain like other modules (no pill/circle) --- */
+#custom-power {
+    background: transparent;
+    border-radius: 0;
+    margin-left: 0;
+    color: @foreground;
+    font-weight: 400;
+}
+
+#custom-power:hover {
+    background: transparent;
+    color: @color2;
+}
+
+/* --- Power-profile (kept subtle) --- */
+#custom-powerprofile {
+    padding: 0 6px;
+}
+
+/* Optional: subtle emphasis by state */
+#custom-powerprofile.performance { font-weight: 600; }
+#custom-powerprofile.power-saver { opacity: 0.8; }

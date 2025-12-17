@@ -1,0 +1,102 @@
+@import url("file:///home/william/.cache/wal/colors-waybar.css");
+
+/* Global reset: no random widget backgrounds */
+* {
+    background-color: transparent;
+    background-image: none;
+    box-shadow: none;
+    transition: 150ms ease-in-out;
+    font-family: "Hack Nerd Font", sans-serif;
+}
+
+/* Window backdrop */
+window {
+    background-color: rgba(0, 0, 0, 0.65);
+    color: @foreground;
+}
+
+/* Layout containers */
+#outer-box,
+#inner-box {
+    margin: 0;
+    padding: 0;
+    background-color: transparent;
+}
+
+#buttons {
+    padding: 40px;
+    background-color: transparent;
+}
+
+/* Base button style – the only solid thing */
+button {
+    background-color: @background;
+    color: @foreground;
+    border-radius: 18px;
+    border: 2px solid @color2;
+    padding: 18px 30px;
+    margin: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+}
+
+/* Make SURE nothing inside paints its own box */
+button  {
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 20%;   
+}
+
+/* Focus (keyboard): subtle, don’t fight hover */
+button:focus {
+    outline: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+    background-color: @background;
+    border-color: @color2;
+}
+
+/* Hover: strong highlight */
+button:hover {
+    background-color: @color2;
+    color: @background;
+    border-color: @color3;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+}
+
+/* Per-action accents */
+#lock {
+    border-color: @color1;
+    background-image: image(url("/home/william/.config/wlogout/icons/lock.png"));
+}
+
+#logout {
+    border-color: @color1;
+    background-image: image(url("/home/william/.config/wlogout/icons/logout.png"));
+}
+
+#suspend {
+    border-color: @color1;
+    background-image: image(url("/home/william/.config/wlogout/icons/suspend.png"));
+}
+
+#hibernate {
+    border-color: @color1;
+    background-image: image(url("/home/william/.config/wlogout/icons/hibernate.png"));
+}
+
+#reboot {
+    border-color: @color1;
+    background-image: image(url("/home/william/.config/wlogout/icons/reboot.png"));
+}
+
+#shutdown {
+     border-color: @color1;
+     background-image: image(url("/home/william/.config/wlogout/icons/shutdown.png"));
+}
+
+#shutdown:hover {
+    background-color: @color6;
+    color: @background;
+}
+

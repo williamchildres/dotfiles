@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+img="$1"
+
+if [ -z "$img" ]; then
+  echo "Usage: setwall /path/to/image"
+  exit 1
+fi
+
+# 1. gsettings
+gsettings set org.gnome.desktop.interface icon-theme 'Papirus-Dark'
+gsettings set org.gnome.desktop.interface gtk-theme 'adw-gtk3-dark'
+gsettings set org.gnome.desktop.interface font-name 'Hack Nerd Font 10'
+gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
+
+# 2. Set wallpaper (example: swww)
+swww init 2>/dev/null
+swww img "$img" --transition-type any --transition-step 60
+
+# 3. Generate wal colors (no terminal preview)
+wal -i "$img" -n
+
+# 4. Update Hyprland colors from wal
+"$HOME/.local/bin/update-hypr-wal"
+
+# 5. Restart Waybar to pick up new CSS colors
+pkill waybar 2>/dev/null || true
+nohup waybar >/dev/null 2>&1 &
+
+# 6. If Thunar is running, restart it so it picks up new GTK colors
+if pgrep -x thunar >/dev/null; then
+  thunar -q
+  nohup thunar >/dev/null 2>&1 &
+fi
+
+# 7. Reload Hyprland so new border colors apply
+hyprctl reload >/dev/null 2>&1

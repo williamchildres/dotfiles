@@ -1,0 +1,175 @@
+{
+  "layer": "top",
+  "position": "top",
+  "margin": "5 5 0 5",
+  "spacing": 6,
+
+  "modules-left": [
+    "hyprland/workspaces",
+    "hyprland/window",
+    "tray"
+  ],
+
+  "modules-center": [
+    "clock"
+  ],
+
+  "modules-right": [
+    "idle_inhibitor",
+    "group/perf",
+    "pulseaudio",
+    "network",
+    "battery",
+    "custom/powerprofile",
+    "custom/power"
+  ],
+
+  "hyprland/workspaces": {
+    "format": "{icon}",
+    "on-click": "activate",
+    "on-scroll-up": "hyprctl dispatch workspace e+1",
+    "on-scroll-down": "hyprctl dispatch workspace e-1",
+    "swap-icon-label": false,
+    "format-icons": {
+      "1": "1",
+      "2": "2",
+      "3": "3",
+      "4": "4",
+      "5": "5",
+      "urgent": "",
+      "active": "",
+      "default": ""
+    }
+  },
+
+  // Hyprland Window
+  "hyprland/window": {
+    "max-length": 60,
+    "rewrite": {
+      "zsh": "Terminal",
+      ".* — Zen Browser$": "Zen"
+    },
+    "separate-outputs": true
+  },
+
+  "clock": {
+    "format": "{:%H:%M}",
+    "format-alt": "{:%a %Y-%m-%d}",
+    "tooltip-format": "{:%A, %B %d %Y\n%H:%M:%S}"
+  },
+  
+  "idle_inhibitor": {
+    "format": "{icon}",
+    "format-icons": {
+      "activated": "󰅶",
+      "deactivated": "󰾪"
+    }
+  },
+
+  "group/perf": {
+    "orientation": "horizontal",
+    "drawer": {
+      "transition-duration": 250,
+      "transition-left-to-right": false,
+      "children-class": "perf-child",
+      "click-to-reveal": true
+    },
+    "modules": [
+      "custom/perf",
+      "cpu",
+      "memory",
+      "disk"
+    ]
+  },
+
+  "custom/perf": {
+    "format": "󰕮",  // 3-bar-ish glyph (Nerd Font)
+    "tooltip": "Performance"
+  },
+
+  "cpu": {
+    "format": "󰍛 {usage}%",
+    "on-click": "kitty -e btop"
+  },
+
+  "memory": {
+    "format": "󰘚 {percentage}%",
+    "on-click": "kitty -e btop"
+  },
+
+  "disk": {
+    "path": "/",
+    "format": "󰋊 {percentage_used}%",
+    "on-click": "kitty -e bash -lc 'df -h /; echo; lsblk; read -n1 -rsp \"Press any key...\"'"
+  }, 
+
+  "pulseaudio": {
+    "format": "{icon}",
+    "format-muted": "",
+    "format-icons": {
+      "default": [
+        "",
+        "",
+        ""
+      ]
+    },
+    /*"on-click": "pavucontrol"*/
+      "on-click": "~/.config/scripts/audio/menu.sh",
+      "on-click-right": "~/.config/scripts/audio/volume.sh mute",
+
+      "on-scroll-up": "~/.config/scripts/audio/volume.sh up 2",
+      "on-scroll-down": "~/.config/scripts/audio/volume.sh down 2"
+  },
+
+  "network": {
+    "format-wifi": "{icon}",
+    "format-ethernet": "󰈀",
+    "format-linked": "󰈀",
+    "format-disconnected": "",
+    "format-disabled":"󰈂",
+    "tooltip-format": "{ifname} via {gwaddr}\n{ipaddr}/{cidr}",
+    "tooltip-format-disabled": "Networking disabled",
+    "format-icons": ["󰤟", "󰤢", "󰤥", "󰤨"],
+    "on-click": "~/.config/scripts/network/menu.sh"
+  },
+
+
+  "battery": {
+    "states": {
+      "warning": 30,
+      "critical": 15
+    },
+    "format": "{icon}",
+    "format-charging": "",
+    "format-plugged": "",
+    "format-alt": "{icon} {capacity}%",
+    "format-icons": ["", "", "", "", ""]
+  },
+
+  "tray": {
+    "icon-size": 21,
+    "spacing": 6
+  },
+
+  "custom/powerprofile": {
+  "exec": "~/.config/scripts/powerprofile.sh",
+  "return-type": "json",
+  "format":"{}",
+  "interval": 10,
+  "signal": 8,
+  "on-click": "~/.config/scripts/powerprofile.sh toggle"
+  },
+
+
+  "custom/power": {
+  "format": "⏻",
+  "tooltip": "Power menu",
+  "on-click": "wlogout",
+  "on-click-right": "systemctl suspend",
+  "interval": 0
+  }
+
+
+
+}
+

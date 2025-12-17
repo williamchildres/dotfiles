@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+# Directory with your wallpapers
+WALLDIR="$HOME/Pictures/wallpapers"
+
+cd "$WALLDIR" || exit 1
+
+# Collect images
+mapfile -t files < <(find . -maxdepth 1 -type f \( \
+  -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \
+  \) | sort)
+
+# Bail if none
+[ ${#files[@]} -eq 0 ] && {
+  echo "No wallpapers found in $WALLDIR"
+  read -n 1 -s -r -p "Press any key to exit..."
+  exit 1
+}
+
+# fzf with kitty preview (using absolute path)
+choice=$(printf '%s\n' "${files[@]}" | fzf \
+  --prompt="Wallpaper > " \
+  --preview 'bash -lc "kitty +kitten icat --clear --stdin=no --transfer-mode=file --place 80x40@0x0 \"$(readlink -f {})\""' \
+  --preview-window=right:70%)
+
+# If nothing selected, exit
+[ -z "$choice" ] && exit 0
+
+# Get full absolute path
+fullpath="$(readlink -f "$choice")"
+
+# Call your existing setwall script
+"$HOME/.local/bin/setwall" "$fullpath"

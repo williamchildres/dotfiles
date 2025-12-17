@@ -1,0 +1,37 @@
+{
+  "label": "lock",
+  "action": "pidof hyprlock || hyprlock",
+  "text": "Lock",
+  "keybind": "l"
+}
+{
+  "label": "logout",
+  "action": "hyprctl dispatch exit",
+  "text": "Logout",
+  "keybind": "e"
+}
+{
+  "label": "suspend",
+  "action": "systemctl suspend",
+  "text": "Suspend",
+  "keybind": "s"
+}
+{
+  "label": "reboot",
+  "action": "systemctl reboot",
+  "text": "Reboot",
+  "keybind": "r"
+}
+{
+  "label": "shutdown",
+  "action": "systemctl poweroff",
+  "text": "Shutdown",
+  "keybind": "p"
+}
+{
+  "label": "hibernate",
+  "action": "loginctl lock-session; systemctl hibernate",
+  "text": "Hibernate",
+  "keybind": "h"
+}
+

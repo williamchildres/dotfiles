@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+# Load wal colors
+if [[ ! -f "$HOME/.cache/wal/colors.sh" ]]; then
+  echo "wal colors.sh not found; run wal first."
+  exit 0
+fi
+
+# shellcheck source=/dev/null
+source "$HOME/.cache/wal/colors.sh"
+
+# Strip leading '#' from hex colors (RRGGBB)
+bg="${background#\#}"
+active="${color4#\#}"
+inactive="${color1#\#}"
+
+# Hyprland expects 0xAARRGGBB (alpha first, hex)
+cat >"$HOME/.config/hypr/wal-colors.conf" <<EOF
+# Generated from pywal. Do not edit.
+
+\$col_bg       = 0xff${bg}
+\$col_active   = 0xff${active}
+\$col_inactive = 0xff${inactive}
+
+general {
+  col.active_border         = \$col_active
+  col.inactive_border       = \$col_inactive
+}
+EOF
+
+# Also generate hyprlock colors (hyprlock likes rgba() / rgb()).
+fg="${foreground#\#}"
+c1="${color1#\#}"
+c2="${color2#\#}"
+c4="${color4#\#}"
+
+cat >"$HOME/.config/hypr/wal-hyprlock.conf" <<EOF
+# Generated from pywal. Do not edit.
+
+\$hl_bg      = rgba(${bg}ff)
+\$hl_fg      = rgba(${fg}ff)
+\$hl_active  = rgba(${c4}ff)
+\$hl_bad     = rgba(${c1}ff)
+\$hl_ok      = rgba(${c2}ff)
+
+EOF

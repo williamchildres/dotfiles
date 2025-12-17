@@ -1,0 +1,21 @@
+# caches
+.cache/
+**/.cache/
+**/Cache/
+**/GPUCache/
+
+# pywal output (usually machine-specific)
+**/.cache/wal/
+
+# logs
+**/*.log
+
+# secrets (adjust to your reality)
+**/*token*
+**/*secret*
+**/*apikey*
+**/*api_key*
+**/id_rsa
+**/id_ed25519
+**/*.pem
+

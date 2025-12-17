@@ -1,0 +1,150 @@
+@import url("file:///home/william/.cache/wal/colors-waybar.css");
+
+/* ---------- Base ---------- */
+
+window,
+.background {
+    background-color: @background;
+    color: @foreground;
+}
+
+/* ---------- Thunar main window ---------- */
+
+.thunar {
+    background-color: @background;
+    color: @foreground;
+}
+
+/* Menubar: File / Edit / View... */
+menubar,
+.thunar menubar,
+.thunar .menubar,
+window menubar,
+menubar:backdrop,
+.thunar menubar:backdrop,
+.thunar .menubar:backdrop,
+window:backdrop menubar {
+    background-color: @color0;
+    color: @foreground;
+}
+
+/* Toolbar: back/forward, path bar */
+toolbar,
+.toolbar,
+.primary-toolbar,
+.thunar toolbar,
+.thunar .toolbar,
+.thunar .primary-toolbar,
+toolbar:backdrop,
+.toolbar:backdrop,
+.primary-toolbar:backdrop,
+.thunar toolbar:backdrop,
+.thunar .toolbar:backdrop,
+.thunar .primary-toolbar:backdrop {
+    background-color: @color0;
+    color: @foreground;
+}
+
+/* Sidebar & main file view */
+.thunar .sidebar,
+.thunar .sidebar .view,
+.thunar .side-pane {
+    background-color: @background;
+    color: @foreground;
+}
+
+.thunar .view,
+.thunar .standard-view,
+.thunar .standard-view .view,
+.thunar iconview,
+.thunar treeview {
+    background-color: @background;
+    color: @foreground;
+}
+
+/* Selected rows/icons */
+.thunar .view:selected,
+.thunar .view:selected:focus,
+.thunar treeview:selected,
+.thunar iconview:selected {
+    background-color: @color2;
+    color: @background;
+}
+
+/* ---------- Text entries (search bar, path entry, etc.) ---------- */
+
+entry,
+.entry,
+.thunar entry,
+.thunar .entry,
+entry:backdrop,
+.entry:backdrop,
+.thunar entry:backdrop,
+.thunar .entry:backdrop {
+    background-color: @color0;
+    color: @foreground;
+    border-radius: 6px;
+    border: 1px solid @color2;
+}
+
+entry:focus,
+.entry:focus,
+.thunar entry:focus,
+.thunar .entry:focus {
+    background-color: @color1;
+    color: @background;
+    border-color: @color3;
+}
+
+entry selection,
+.entry selection {
+    background-color: @color2;
+    color: @background;
+}
+
+/* ---------- Buttons (generic) ---------- */
+
+button,
+button:focus,
+button:active,
+button:checked,
+button:backdrop {
+    background-color: @color0;
+    color: @foreground;
+    border-radius: 6px;
+    border: 1px solid @color2;
+}
+
+button:hover {
+    background-color: @color2;
+    color: @background;
+    border-color: @color3;
+}
+
+/* Tiny +/- icon buttons and inline toolbars */
+.inline-toolbar,
+.inline-toolbar button,
+toolbar.inline-toolbar,
+toolbar.inline-toolbar button {
+    background-color: @color0;
+    color: @foreground;
+    border-radius: 4px;
+}
+
+button.image-button,
+.inline-toolbar button.image-button,
+button.image-button:backdrop,
+button.image-button:active {
+    background-color: @color0;
+    color: @foreground;
+    border-radius: 4px;
+    border: 1px solid @color2;
+}
+
+button.image-button:hover,
+.inline-toolbar button.image-button:hover {
+    background-color: @color2;
+    color: @background;
+    border-color: @color3;
+}
+
