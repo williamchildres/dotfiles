@@ -1,6 +1,7 @@
 # Dotfiles (Arch + Hyprland)
 
 Hyprland desktop configuration managed with **GNU Stow**.
+<img width="2256" height="1504" alt="image" src="https://github.com/user-attachments/assets/4e6c239c-3c62-4f43-bc97-b900c9bbd31d" />
 
 ## Included
 - Hyprland: `hypr/`
@@ -19,9 +20,7 @@ Hyprland desktop configuration managed with **GNU Stow**.
 - Packages: 'git', 'stow'
 
 ## Install (Arch-based)
-```bash
-```
-```
+``` bash
 git clone https://github.com/williamchildres/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 ./install.sh
@@ -33,21 +32,16 @@ cd ~/dotfiles
 3. Symlink configs into place via 'stow'
 
 ## Updating
-```
+``` bash
 cd ~/dotfiles
 git pull
 stow -R hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts bin
 ```
 
 ## Uninstall (remove symlinks)
-```
+``` bash
 cd ~/dotfiles
 stow -D hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts bin
 ```
-
-```
-```
-```
-```
-```
+``
 
