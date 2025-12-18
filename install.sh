@@ -8,6 +8,23 @@ BACKUP_DIR="$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)"
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 
+read_pkg_list() {
+  # Reads a list file into array name passed as $1
+  # Strips blank lines and comments.
+  local __arr_name="$1"
+  local __file="$2"
+  local __tmp=()
+  if [[ -f "$__file" ]]; then
+    while IFS= read -r line; do
+      line="${line%%#*}"
+      line="$(echo "$line" | xargs || true)"
+      [[ -z "$line" ]] && continue
+      __tmp+=("$line")
+    done <"$__file"
+  fi
+  eval "$__arr_name=(\"\${__tmp[@]}\")"
+}
+
 echo "==> dotfiles installer"
 echo "==> repo: $REPO_DIR"
 
@@ -16,33 +33,46 @@ if ! need_cmd pacman; then
   exit 1
 fi
 
+# Base deps (needed for building yay + stow)
 sudo pacman -Syu --needed --noconfirm git stow base-devel curl
 
-if [[ -f "$PACMAN_LIST" ]]; then
-  sudo pacman -S --needed --noconfirm $(grep -vE '^\s*#|^\s*$' "$PACMAN_LIST")
+# Pacman packages
+read_pkg_list PAC_PKGS "$PACMAN_LIST"
+if ((${#PAC_PKGS[@]} > 0)); then
+  sudo pacman -S --needed --noconfirm "${PAC_PKGS[@]}"
 fi
 
-# AUR helper
-AUR_HELPER=""
-for h in paru yay; do
-  if need_cmd "$h"; then
-    AUR_HELPER="$h"
-    break
-  fi
-done
-
-if [[ -f "$AUR_LIST" ]] && [[ -n "$(grep -vE '^\s*#|^\s*$' "$AUR_LIST" || true)" ]]; then
-  if [[ -z "$AUR_HELPER" ]]; then
-    echo "==> installing paru (AUR helper)..."
+# AUR packages via yay
+read_pkg_list AUR_PKGS "$AUR_LIST"
+if ((${#AUR_PKGS[@]} > 0)); then
+  if ! need_cmd yay; then
+    echo "==> installing yay (AUR helper)..."
     tmp="$(mktemp -d)"
-    git clone https://aur.archlinux.org/paru.git "$tmp/paru"
-    (cd "$tmp/paru" && makepkg -si --noconfirm)
+    git clone https://aur.archlinux.org/yay.git "$tmp/yay"
+    (cd "$tmp/yay" && makepkg -si --noconfirm)
     rm -rf "$tmp"
-    AUR_HELPER="paru"
   fi
-  "$AUR_HELPER" -S --needed --noconfirm $(grep -vE '^\s*#|^\s*$' "$AUR_LIST")
+
+  echo "==> installing AUR packages with yay..."
+  yay -S --needed --noconfirm "${AUR_PKGS[@]}"
 fi
 
+# ---- Greeter (greetd) install if none detected/enabled ----
+has_greeter=false
+if need_cmd systemctl; then
+  systemctl is-enabled --quiet display-manager.service && has_greeter=true || true
+  for s in greetd sddm gdm lightdm ly; do
+    systemctl is-enabled --quiet "$s.service" 2>/dev/null && has_greeter=true || true
+  done
+fi
+
+if [[ "$has_greeter" == "false" ]]; then
+  echo "==> No greeter detected. Installing greetd + tuigreet..."
+  sudo pacman -S --needed --noconfirm greetd tuigreet
+  sudo systemctl enable greetd.service
+fi
+
+# ---- Backups of existing real dirs/files (non-symlinks) ----
 mkdir -p "$BACKUP_DIR/.config" "$BACKUP_DIR/.local"
 
 backup_if_exists() {
@@ -58,12 +88,18 @@ for d in hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts; d
 done
 backup_if_exists "$HOME/.local/bin"
 
+# ---- Stow packages ----
 cd "$REPO_DIR"
 for pkg in hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts bin; do
   [[ -d "$REPO_DIR/$pkg" ]] && stow -v "$pkg"
 done
 
-# Seed wal-generated configs if missing (prevents Hyprland source warnings on first boot)
+# ---- Seed monitors override if missing ----
+if [[ ! -f "$HOME/.config/hypr/monitors.local.conf" ]] && [[ -f "$REPO_DIR/hypr/.config/hypr/monitors.local.conf.example" ]]; then
+  cp "$REPO_DIR/hypr/.config/hypr/monitors.local.conf.example" "$HOME/.config/hypr/monitors.local.conf"
+fi
+
+# ---- Seed wal-generated configs if missing ----
 if [[ ! -f "$HOME/.config/hypr/wal-colors.conf" ]] && [[ -f "$REPO_DIR/hypr/.config/hypr/wal-colors.conf.example" ]]; then
   cp "$REPO_DIR/hypr/.config/hypr/wal-colors.conf.example" "$HOME/.config/hypr/wal-colors.conf"
 fi
