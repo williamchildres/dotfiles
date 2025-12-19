@@ -68,6 +68,42 @@ prompt_yes_no() {
   done
 }
 
+refresh_pacman_mirrors_every_time() {
+  # Default to US mirrors; override like: MIRROR_COUNTRY=DE ./install.sh
+  local country="${MIRROR_COUNTRY:-US}"
+  local url="https://archlinux.org/mirrorlist/?country=${country}&protocol=https&ip_version=4&use_mirror_status=on"
+  local bak="/etc/pacman.d/mirrorlist.bak.$(date +%Y%m%d-%H%M%S)"
+
+  echo "==> refreshing pacman mirrors (country=${country}, https, ipv4)..."
+
+  # Backup current mirrorlist (best effort)
+  sudo cp -f /etc/pacman.d/mirrorlist "$bak" 2>/dev/null || true
+
+  # Ensure time sync (TLS failures can happen with bad clocks)
+  if need_cmd timedatectl; then
+    sudo timedatectl set-ntp true >/dev/null 2>&1 || true
+  fi
+
+  # Download fresh mirrorlist (best effort; continue even if it fails)
+  if need_cmd curl; then
+    sudo curl -fsSL "$url" -o /etc/pacman.d/mirrorlist || {
+      echo "!! mirror refresh via curl failed; keeping existing mirrorlist."
+      return 0
+    }
+  elif need_cmd wget; then
+    sudo wget -qO /etc/pacman.d/mirrorlist "$url" || {
+      echo "!! mirror refresh via wget failed; keeping existing mirrorlist."
+      return 0
+    }
+  else
+    echo "!! neither curl nor wget found; cannot refresh mirrors. Continuing."
+    return 0
+  fi
+
+  # Uncomment Server lines
+  sudo sed -i 's/^#Server/Server/' /etc/pacman.d/mirrorlist || true
+}
+
 echo "==> dotfiles installer"
 echo "==> repo: $REPO_DIR"
 
@@ -76,8 +112,11 @@ if ! need_cmd pacman; then
   exit 1
 fi
 
-# Base deps (needed for building yay + stow)
-sudo pacman -Syu --needed --noconfirm git stow base-devel curl
+# ---- Always refresh mirrors first ----
+refresh_pacman_mirrors_every_time
+
+# Base deps (needed for building yay + stow). Note: curl may already be present; harmless if it is.
+sudo pacman -Syyu --needed --noconfirm git stow base-devel curl
 
 # Pacman packages
 read_pkg_list PAC_PKGS "$PACMAN_LIST"
@@ -125,7 +164,6 @@ if [[ "$has_greeter" == "false" ]]; then
   if pacman -Si greetd-tuigreet >/dev/null 2>&1; then
     sudo pacman -S --needed --noconfirm greetd-tuigreet
   else
-    # fallback if a repo has plain 'tuigreet' or it's AUR
     if pacman -Si tuigreet >/dev/null 2>&1; then
       sudo pacman -S --needed --noconfirm tuigreet
     else
