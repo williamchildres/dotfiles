@@ -1,49 +1,76 @@
-# Core
+# ------------------------------------------------------------
+# Dotfiles packages (pacman)
+# ------------------------------------------------------------
+
+# Core / build / scripting
 git
 stow
 base-devel
 curl
 jq
 
-# Hyprland + idle/lock
+# Shell
+zsh
+
+# ------------------------------------------------------------
+# Hyprland (compositor + session tools)
+# ------------------------------------------------------------
 hyprland
 hypridle
 hyprlock
 
-# Bar / launcher / UI
-zsh
+# Bar / notifications / terminal
 waybar
-kitty
 swaync
+kitty
 
-# Audio
+# ------------------------------------------------------------
+# Audio (PipeWire)
+# ------------------------------------------------------------
 pipewire
+pipewire-pulse
 wireplumber
+libnotify
 pavucontrol
 playerctl
 
+# ------------------------------------------------------------
 # Network
+# ------------------------------------------------------------
 networkmanager
 
-# Clipboard + screenshots
+# ------------------------------------------------------------
+# Clipboard / screenshots
+# ------------------------------------------------------------
 wl-clipboard
 grim
 slurp
 satty
 
-# Tools
+# ------------------------------------------------------------
+# File manager
+# ------------------------------------------------------------
+thunar
+
+# ------------------------------------------------------------
+# Dev / editor / monitoring
+# ------------------------------------------------------------
 neovim
 btop
 fastfetch
-thunar
-openbsd-netcat
 
-# Theming / fonts
-python-pywal
-ttf-hack-nerd
-
-# Utils
-xdg-utils
+# ------------------------------------------------------------
+# Search / launcher helpers
+# ------------------------------------------------------------
 fd
 ripgrep
+openbsd-netcat
+xdg-utils
+desktop-file-utils
+shared-mime-info
 
+# ------------------------------------------------------------
+# Theming / fonts
+# ------------------------------------------------------------
+python-pywal
+ttf-hack-nerd

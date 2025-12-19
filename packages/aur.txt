@@ -1,4 +1,14 @@
+# ------------------------------------------------------------
+# Dotfiles packages (AUR)
+# ------------------------------------------------------------
+
+# Apps
 obsidian
-wlogout
 zen-browser-bin
+wlogout
+
+# Launcher stack
 walker-bin
+elephant
+elephant-desktopapplications
+elephant-calc
