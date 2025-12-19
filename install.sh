@@ -5,12 +5,12 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACMAN_LIST="$REPO_DIR/packages/pacman.txt"
 AUR_LIST="$REPO_DIR/packages/aur.txt"
 BACKUP_DIR="$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)"
+USER_NAME="${SUDO_USER:-$USER}"
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 read_pkg_list() {
-  # Reads a list file into array name passed as $1
-  # Strips blank lines and comments.
+  # Reads a list file into array name passed as $1; strips comments/blank lines.
   local __arr_name="$1"
   local __file="$2"
   local __tmp=()
@@ -23,6 +23,17 @@ read_pkg_list() {
     done <"$__file"
   fi
   eval "$__arr_name=(\"\${__tmp[@]}\")"
+}
+
+install_yay_if_missing() {
+  if ! need_cmd yay; then
+    echo "==> installing yay (AUR helper)..."
+    local tmp
+    tmp="$(mktemp -d)"
+    git clone https://aur.archlinux.org/yay.git "$tmp/yay"
+    (cd "$tmp/yay" && makepkg -si --noconfirm)
+    rm -rf "$tmp"
+  fi
 }
 
 echo "==> dotfiles installer"
@@ -45,14 +56,7 @@ fi
 # AUR packages via yay
 read_pkg_list AUR_PKGS "$AUR_LIST"
 if ((${#AUR_PKGS[@]} > 0)); then
-  if ! need_cmd yay; then
-    echo "==> installing yay (AUR helper)..."
-    tmp="$(mktemp -d)"
-    git clone https://aur.archlinux.org/yay.git "$tmp/yay"
-    (cd "$tmp/yay" && makepkg -si --noconfirm)
-    rm -rf "$tmp"
-  fi
-
+  install_yay_if_missing
   echo "==> installing AUR packages with yay..."
   yay -S --needed --noconfirm "${AUR_PKGS[@]}"
 fi
@@ -68,7 +72,33 @@ fi
 
 if [[ "$has_greeter" == "false" ]]; then
   echo "==> No greeter detected. Installing greetd + tuigreet..."
-  sudo pacman -S --needed --noconfirm greetd tuigreet
+
+  # greetd is in official repos
+  sudo pacman -S --needed --noconfirm greetd
+
+  # tuigreet: try pacman first, otherwise AUR
+  if pacman -Si tuigreet >/dev/null 2>&1; then
+    sudo pacman -S --needed --noconfirm tuigreet
+  else
+    install_yay_if_missing
+    yay -S --needed --noconfirm tuigreet
+  fi
+
+  # Configure greetd to launch tuigreet -> Hyprland
+  # NOTE: /etc/greetd/config.toml is system-wide.
+  echo "==> Configuring /etc/greetd/config.toml ..."
+  sudo install -d -m 0755 /etc/greetd
+
+  sudo tee /etc/greetd/config.toml >/dev/null <<EOF
+[terminal]
+vt = 1
+
+[default_session]
+command = "tuigreet --time --remember --cmd Hyprland"
+user = "$USER_NAME"
+EOF
+
+  # Enable greetd
   sudo systemctl enable greetd.service
 fi
 
@@ -109,3 +139,6 @@ if [[ ! -f "$HOME/.config/hypr/wal-hyprlock.conf" ]] && [[ -f "$REPO_DIR/hypr/.c
 fi
 
 echo "==> done. backup (if any): $BACKUP_DIR"
+if [[ "$has_greeter" == "false" ]]; then
+  echo "==> greetd enabled. Reboot to use the greeter: sudo reboot"
+fi
