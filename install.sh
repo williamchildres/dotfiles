@@ -7,6 +7,10 @@ AUR_LIST="$REPO_DIR/packages/aur.txt"
 BACKUP_DIR="$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)"
 USER_NAME="${SUDO_USER:-$USER}"
 
+# Public wallpapers repo (HTTPS so users don't need SSH keys)
+WALLPAPER_REPO_URL="https://github.com/williamchildres/wallpapers.git"
+WALLPAPER_DIR="$HOME/Pictures/wallpapers"
+
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 read_pkg_list() {
@@ -36,6 +40,34 @@ install_yay_if_missing() {
   fi
 }
 
+prompt_yes_no() {
+  # Usage: prompt_yes_no "Question?" "y|n"
+  local q="${1:?}"
+  local def="${2:-n}"
+  local ans
+
+  # Non-interactive runs default to "no"
+  if [[ ! -t 0 ]]; then
+    [[ "$def" == "y" ]] && return 0 || return 1
+  fi
+
+  while true; do
+    if [[ "$def" == "y" ]]; then
+      read -rp "$q [Y/n]: " ans </dev/tty || ans=""
+      ans="${ans:-y}"
+    else
+      read -rp "$q [y/N]: " ans </dev/tty || ans=""
+      ans="${ans:-n}"
+    fi
+
+    case "${ans,,}" in
+    y | yes) return 0 ;;
+    n | no) return 1 ;;
+    *) echo "Please answer y or n." ;;
+    esac
+  done
+}
+
 echo "==> dotfiles installer"
 echo "==> repo: $REPO_DIR"
 
@@ -61,6 +93,21 @@ if ((${#AUR_PKGS[@]} > 0)); then
   yay -S --needed --noconfirm "${AUR_PKGS[@]}"
 fi
 
+# ---- Enable key services if present ----
+if need_cmd systemctl; then
+  # Networking: prefer NetworkManager if installed
+  if pacman -Qi networkmanager >/dev/null 2>&1; then
+    sudo systemctl enable --now NetworkManager.service
+    sudo systemctl disable --now systemd-networkd.service 2>/dev/null || true
+    sudo systemctl disable --now dhcpcd.service 2>/dev/null || true
+  fi
+
+  # Power profiles
+  if pacman -Qi power-profiles-daemon >/dev/null 2>&1; then
+    sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null || true
+  fi
+fi
+
 # ---- Greeter (greetd) install if none detected/enabled ----
 has_greeter=false
 if need_cmd systemctl; then
@@ -72,15 +119,13 @@ fi
 
 if [[ "$has_greeter" == "false" ]]; then
   echo "==> No greeter detected. Installing greetd + tuigreet..."
-
-  # greetd is in official repos
   sudo pacman -S --needed --noconfirm greetd
 
-  # tuigreet package name differs by repo: prefer pacman package greetd-tuigreet if available
+  # Arch commonly ships tuigreet as greetd-tuigreet
   if pacman -Si greetd-tuigreet >/dev/null 2>&1; then
     sudo pacman -S --needed --noconfirm greetd-tuigreet
   else
-    # fallback (some setups may have a plain 'tuigreet' package or AUR)
+    # fallback if a repo has plain 'tuigreet' or it's AUR
     if pacman -Si tuigreet >/dev/null 2>&1; then
       sudo pacman -S --needed --noconfirm tuigreet
     else
@@ -101,20 +146,6 @@ user = "$USER_NAME"
 EOF
 
   sudo systemctl enable greetd.service
-fi
-
-# ---- Networking: prefer NetworkManager ----
-if need_cmd systemctl; then
-  sudo systemctl enable --now NetworkManager.service
-
-  # Disable conflicting network managers if present
-  sudo systemctl disable --now systemd-networkd.service 2>/dev/null || true
-  sudo systemctl disable --now dhcpcd.service 2>/dev/null || true
-fi
-
-# ---- Power profiles ----
-if need_cmd systemctl; then
-  sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null || true
 fi
 
 # ---- Backups of existing real dirs/files (non-symlinks) ----
@@ -153,7 +184,7 @@ if [[ ! -f "$HOME/.config/hypr/wal-hyprlock.conf" ]] && [[ -f "$REPO_DIR/hypr/.c
   cp "$REPO_DIR/hypr/.config/hypr/wal-hyprlock.conf.example" "$HOME/.config/hypr/wal-hyprlock.conf"
 fi
 
-# ---- Seed pywal cache for Waybar if missing ----
+# ---- Seed pywal cache for Waybar if missing (prevents Waybar failing on first boot) ----
 mkdir -p "$HOME/.cache/wal"
 if [[ ! -f "$HOME/.cache/wal/colors-waybar.css" ]]; then
   cat >"$HOME/.cache/wal/colors-waybar.css" <<'EOF'
@@ -183,4 +214,39 @@ fi
 echo "==> done. backup (if any): $BACKUP_DIR"
 if [[ "$has_greeter" == "false" ]]; then
   echo "==> greetd enabled. Reboot to use the greeter: sudo reboot"
+fi
+
+# ---- Prompt: optionally install wallpapers ----
+echo
+echo "==> Wallpaper picker note:"
+echo "    Super+W expects wallpapers in: $HOME/Pictures/wallpapers"
+echo
+
+if prompt_yes_no "Would you like to download William's wallpaper pack now?" "n"; then
+  echo "==> Installing wallpapers into: $WALLPAPER_DIR"
+
+  # Git LFS is required to fetch actual image content if repo uses LFS
+  if ! need_cmd git-lfs; then
+    echo "==> Installing git-lfs (required for high-res wallpapers)..."
+    sudo pacman -S --needed --noconfirm git-lfs
+    git lfs install --skip-repo >/dev/null 2>&1 || true
+  fi
+
+  mkdir -p "$HOME/Pictures"
+
+  if [[ -d "$WALLPAPER_DIR/.git" ]]; then
+    echo "==> wallpapers repo already exists; pulling latest..."
+    (cd "$WALLPAPER_DIR" && git pull --ff-only) || true
+    (cd "$WALLPAPER_DIR" && git lfs pull) || true
+  elif [[ -e "$WALLPAPER_DIR" ]]; then
+    echo "!! $WALLPAPER_DIR exists but is not a git repo. Skipping clone."
+    echo "   Move it aside and re-run if you want the wallpaper pack."
+  else
+    git clone "$WALLPAPER_REPO_URL" "$WALLPAPER_DIR"
+    (cd "$WALLPAPER_DIR" && git lfs pull) || true
+  fi
+
+  echo "==> Wallpapers installed."
+else
+  echo "==> Skipping wallpapers."
 fi
