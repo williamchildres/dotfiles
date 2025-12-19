@@ -76,29 +76,30 @@ if [[ "$has_greeter" == "false" ]]; then
   # greetd is in official repos
   sudo pacman -S --needed --noconfirm greetd
 
-  # tuigreet: try pacman first, otherwise AUR
-  if pacman -Si tuigreet >/dev/null 2>&1; then
-    sudo pacman -S --needed --noconfirm tuigreet
+  # tuigreet package name differs by repo: prefer pacman package greetd-tuigreet if available
+  if pacman -Si greetd-tuigreet >/dev/null 2>&1; then
+    sudo pacman -S --needed --noconfirm greetd-tuigreet
   else
-    install_yay_if_missing
-    yay -S --needed --noconfirm tuigreet
+    # fallback (some setups may have a plain 'tuigreet' package or AUR)
+    if pacman -Si tuigreet >/dev/null 2>&1; then
+      sudo pacman -S --needed --noconfirm tuigreet
+    else
+      install_yay_if_missing
+      yay -S --needed --noconfirm tuigreet
+    fi
   fi
 
-  # Configure greetd to launch tuigreet -> Hyprland
-  # NOTE: /etc/greetd/config.toml is system-wide.
   echo "==> Configuring /etc/greetd/config.toml ..."
   sudo install -d -m 0755 /etc/greetd
-
   sudo tee /etc/greetd/config.toml >/dev/null <<EOF
 [terminal]
 vt = 1
 
 [default_session]
-command = "tuigreet --time --remember --cmd Hyprland"
+command = "/usr/bin/tuigreet --time --remember --cmd /usr/bin/Hyprland"
 user = "$USER_NAME"
 EOF
 
-  # Enable greetd
   sudo systemctl enable greetd.service
 fi
 
@@ -136,6 +137,33 @@ fi
 
 if [[ ! -f "$HOME/.config/hypr/wal-hyprlock.conf" ]] && [[ -f "$REPO_DIR/hypr/.config/hypr/wal-hyprlock.conf.example" ]]; then
   cp "$REPO_DIR/hypr/.config/hypr/wal-hyprlock.conf.example" "$HOME/.config/hypr/wal-hyprlock.conf"
+fi
+
+# ---- Seed pywal cache for Waybar if missing ----
+mkdir -p "$HOME/.cache/wal"
+if [[ ! -f "$HOME/.cache/wal/colors-waybar.css" ]]; then
+  cat >"$HOME/.cache/wal/colors-waybar.css" <<'EOF'
+@define-color background #171821;
+@define-color foreground #b1bccf;
+@define-color cursor #b1bccf;
+
+@define-color color0 #171821;
+@define-color color1 #A93939;
+@define-color color2 #9A5263;
+@define-color color3 #E76262;
+@define-color color4 #3C5B84;
+@define-color color5 #5A6D91;
+@define-color color6 #C87986;
+@define-color color7 #b1bccf;
+@define-color color8 #7b8390;
+@define-color color9 #A93939;
+@define-color color10 #9A5263;
+@define-color color11 #E76262;
+@define-color color12 #3C5B84;
+@define-color color13 #5A6D91;
+@define-color color14 #C87986;
+@define-color color15 #b1bccf;
+EOF
 fi
 
 echo "==> done. backup (if any): $BACKUP_DIR"
