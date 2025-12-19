@@ -69,12 +69,10 @@ prompt_yes_no() {
 }
 
 refresh_pacman_mirrors_every_time() {
-  # Default to US mirrors; override like: MIRROR_COUNTRY=DE ./install.sh
   local country="${MIRROR_COUNTRY:-US}"
-  local url="https://archlinux.org/mirrorlist/?country=${country}&protocol=https&ip_version=4&use_mirror_status=on"
   local bak="/etc/pacman.d/mirrorlist.bak.$(date +%Y%m%d-%H%M%S)"
 
-  echo "==> refreshing pacman mirrors (country=${country}, https, ipv4)..."
+  echo "==> refreshing pacman mirrors (reflector: country=${country}, https)..."
 
   sudo cp -f /etc/pacman.d/mirrorlist "$bak" 2>/dev/null || true
 
@@ -83,22 +81,19 @@ refresh_pacman_mirrors_every_time() {
     sudo timedatectl set-ntp true >/dev/null 2>&1 || true
   fi
 
-  if need_cmd curl; then
-    sudo curl -fsSL "$url" -o /etc/pacman.d/mirrorlist || {
-      echo "!! mirror refresh via curl failed; keeping existing mirrorlist."
-      return 0
-    }
-  elif need_cmd wget; then
-    sudo wget -qO /etc/pacman.d/mirrorlist "$url" || {
-      echo "!! mirror refresh via wget failed; keeping existing mirrorlist."
-      return 0
-    }
-  else
-    echo "!! neither curl nor wget found; cannot refresh mirrors. Continuing."
-    return 0
+  # Install reflector if missing (small, worth it)
+  if ! need_cmd reflector; then
+    sudo pacman -Sy --needed --noconfirm reflector
   fi
 
-  sudo sed -i 's/^#Server/Server/' /etc/pacman.d/mirrorlist || true
+  # Generate a fast, reliable mirrorlist (HTTPS only)
+  sudo reflector \
+    --country "$country" \
+    --protocol https \
+    --age 24 \
+    --latest 25 \
+    --sort rate \
+    --save /etc/pacman.d/mirrorlist
 }
 
 # ---- Fix bad stow folding of ~/.local (prevents share/state landing in repo) ----
