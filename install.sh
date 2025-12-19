@@ -465,7 +465,7 @@ echo "==> Wallpaper picker note:"
 echo "    Super+W expects wallpapers in: $HOME/Pictures/wallpapers"
 echo
 
-if prompt_yes_no "Would you like to download William's wallpaper pack now?" "n"; then
+if prompt_yes_no "Would you like to download William's wallpaper pack now?" "y"; then
   echo "==> Installing wallpapers into: $WALLPAPER_DIR"
 
   if ! need_cmd git-lfs; then
