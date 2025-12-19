@@ -68,11 +68,15 @@ prompt_yes_no() {
   done
 }
 
+# --- Mirror refresh that works even on fresh/broken machines ---
+# Uses Arch mirrorlist endpoint (https only), strips ftp and known flaky mirrors,
+# then pacman with retries and auto-prune of the mirror that just failed.
 refresh_pacman_mirrors_every_time() {
   local country="${MIRROR_COUNTRY:-US}"
+  local url="https://archlinux.org/mirrorlist/?country=${country}&protocol=https&ip_version=4&use_mirror_status=on"
   local bak="/etc/pacman.d/mirrorlist.bak.$(date +%Y%m%d-%H%M%S)"
 
-  echo "==> refreshing pacman mirrors (reflector: country=${country}, https)..."
+  echo "==> refreshing pacman mirrors (country=${country}, https, ipv4)..."
 
   sudo cp -f /etc/pacman.d/mirrorlist "$bak" 2>/dev/null || true
 
@@ -81,19 +85,70 @@ refresh_pacman_mirrors_every_time() {
     sudo timedatectl set-ntp true >/dev/null 2>&1 || true
   fi
 
-  # Install reflector if missing (small, worth it)
-  if ! need_cmd reflector; then
-    sudo pacman -Sy --needed --noconfirm reflector
+  # Ensure curl exists (on very bare installs it usually does, but be safe)
+  if ! need_cmd curl; then
+    echo "==> curl missing; attempting to install curl using existing mirrors..."
+    sudo pacman -Sy --needed --noconfirm curl || true
   fi
 
-  # Generate a fast, reliable mirrorlist (HTTPS only)
-  sudo reflector \
-    --country "$country" \
-    --protocol https \
-    --age 24 \
-    --latest 25 \
-    --sort rate \
-    --save /etc/pacman.d/mirrorlist
+  if ! need_cmd curl; then
+    echo "!! curl still missing; cannot refresh mirrors. Continuing with existing mirrorlist."
+    return 0
+  fi
+
+  sudo curl -fsSL "$url" -o /etc/pacman.d/mirrorlist || {
+    echo "!! mirror refresh failed; keeping existing mirrorlist."
+    return 0
+  }
+
+  # Uncomment Server lines
+  sudo sed -i 's/^#Server/Server/' /etc/pacman.d/mirrorlist || true
+
+  # Hard remove ftp mirrors + known flaky domain(s)
+  sudo sed -i '/^Server = ftp:\/\//d;/osuosl/d;/osouos1/d' /etc/pacman.d/mirrorlist || true
+}
+
+extract_failed_mirror_host() {
+  # Best-effort parse: pacman prints lines like:
+  # "failed retrieving file 'pkg' from mirror.domain : error: ..."
+  # We'll scrape stdout/stderr captured by pacman_retry.
+  sed -nE "s/.*failed retrieving file '.*' from ([^ ]+).*/\1/p" | tail -n 1
+}
+
+pacman_retry() {
+  # Usage: pacman_retry -Syyu --needed --noconfirm pkg1 pkg2 ...
+  local tries=5
+  local n=1
+  local out host
+
+  while ((n <= tries)); do
+    echo "==> pacman attempt $n/$tries: pacman $*"
+    set +e
+    out="$(sudo pacman "$@" 2>&1)"
+    rc=$?
+    set -e
+
+    if ((rc == 0)); then
+      return 0
+    fi
+
+    echo "$out" >&2
+
+    host="$(printf "%s\n" "$out" | extract_failed_mirror_host || true)"
+    echo "!! pacman failed. Refreshing mirrors and pruning host: ${host:-unknown}" >&2
+
+    refresh_pacman_mirrors_every_time
+
+    if [[ -n "${host:-}" ]]; then
+      # Remove any mirror lines containing this host (both http and https)
+      sudo sed -i "\#${host}#d" /etc/pacman.d/mirrorlist || true
+    fi
+
+    ((n++))
+  done
+
+  echo "!! pacman failed after $tries attempts." >&2
+  return 1
 }
 
 # ---- Fix bad stow folding of ~/.local (prevents share/state landing in repo) ----
@@ -132,12 +187,12 @@ fi
 refresh_pacman_mirrors_every_time
 
 # Base deps (needed for building yay + stow).
-sudo pacman -Syyu --needed --noconfirm git stow base-devel curl
+pacman_retry -Syyu --needed --noconfirm git stow base-devel curl
 
 # Pacman packages
 read_pkg_list PAC_PKGS "$PACMAN_LIST"
 if ((${#PAC_PKGS[@]} > 0)); then
-  sudo pacman -S --needed --noconfirm "${PAC_PKGS[@]}"
+  pacman_retry -S --needed --noconfirm "${PAC_PKGS[@]}"
 fi
 
 # AUR packages via yay
@@ -174,14 +229,14 @@ fi
 
 if [[ "$has_greeter" == "false" ]]; then
   echo "==> No greeter detected. Installing greetd + tuigreet..."
-  sudo pacman -S --needed --noconfirm greetd
+  pacman_retry -S --needed --noconfirm greetd
 
   # Arch commonly ships tuigreet as greetd-tuigreet
   if pacman -Si greetd-tuigreet >/dev/null 2>&1; then
-    sudo pacman -S --needed --noconfirm greetd-tuigreet
+    pacman_retry -S --needed --noconfirm greetd-tuigreet
   else
     if pacman -Si tuigreet >/dev/null 2>&1; then
-      sudo pacman -S --needed --noconfirm tuigreet
+      pacman_retry -S --needed --noconfirm tuigreet
     else
       install_yay_if_missing
       yay -S --needed --noconfirm tuigreet
@@ -291,7 +346,7 @@ if prompt_yes_no "Would you like to download William's wallpaper pack now?" "n";
 
   if ! need_cmd git-lfs; then
     echo "==> Installing git-lfs (required for high-res wallpapers)..."
-    sudo pacman -S --needed --noconfirm git-lfs
+    pacman_retry -S --needed --noconfirm git-lfs
     git lfs install --skip-repo >/dev/null 2>&1 || true
   fi
 
