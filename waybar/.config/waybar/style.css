@@ -1,5 +1,5 @@
 /* Pull colors from pywal (generated when you run `wal`) */
-@import url("file:///home/william/.cache/wal/colors-waybar.css");
+@import url("file://~/.cache/wal/colors-waybar.css");
 /* If that ever fails, switch to:
    @import url("file:///home/william/.cache/wal/colors.css");
 */
