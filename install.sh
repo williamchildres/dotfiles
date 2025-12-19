@@ -112,6 +112,11 @@ if need_cmd systemctl; then
   sudo systemctl disable --now dhcpcd.service 2>/dev/null || true
 fi
 
+# ---- Power profiles ----
+if need_cmd systemctl; then
+  sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null || true
+fi
+
 # ---- Backups of existing real dirs/files (non-symlinks) ----
 mkdir -p "$BACKUP_DIR/.config" "$BACKUP_DIR/.local"
 
