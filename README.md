@@ -42,7 +42,7 @@ Everything else is installed by the installer using:
 git clone https://github.com/williamchildres/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 ./install.sh
-
+```
 
 
 What the installer does
@@ -203,18 +203,21 @@ Super + L: Lock (hyprlock)
 Print / Shift+Print / Ctrl+Print: Screenshot scripts
 
 Updating
+``` bash
 cd ~/dotfiles
 git pull
 stow -R hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts
 stow -R --no-folding bin
-
+```
 
 Using --no-folding for bin prevents ~/.local from turning into a symlink.
 
 Uninstall (remove symlinks)
+``` bash
 cd ~/dotfiles
 stow -D hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts
 stow -D --no-folding bin
+```
 
 Notes / Troubleshooting
 Waybar doesn’t appear
@@ -228,10 +231,10 @@ Waybar not installed
 Hyprland exec-once = waybar missing
 
 Check:
-
+``` bash
 waybar -l debug
 ls -la ~/.cache/wal/colors-waybar.css
-
+```
 Walker opens but shows “no results”
 
 Walker needs .desktop entries from installed apps and sometimes needs its cache built.
