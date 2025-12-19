@@ -103,6 +103,15 @@ EOF
   sudo systemctl enable greetd.service
 fi
 
+# ---- Networking: prefer NetworkManager ----
+if need_cmd systemctl; then
+  sudo systemctl enable --now NetworkManager.service
+
+  # Disable conflicting network managers if present
+  sudo systemctl disable --now systemd-networkd.service 2>/dev/null || true
+  sudo systemctl disable --now dhcpcd.service 2>/dev/null || true
+fi
+
 # ---- Backups of existing real dirs/files (non-symlinks) ----
 mkdir -p "$BACKUP_DIR/.config" "$BACKUP_DIR/.local"
 
