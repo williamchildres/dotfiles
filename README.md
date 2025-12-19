@@ -94,3 +94,38 @@ If any configs still contain /home/william/... style paths, the installer patche
 At the end, the installer prompts:
 Clone wallpaper repo into: ~/Pictures/wallpapers
 Installs git-lfs if needed and runs git lfs pull
+
+
+## Keybinds (Basics)
+See ~/.config/hypr/hyprland.conf for the full list.
+- Super + Enter: Kitty terminal
+- Super + M: Walker launcher (socket-based)
+- Super + W: Wallpaper picker (requires ~/Pictures/wallpapers)
+- Super + B: Browser (Zen, if installed)
+
+## Wallpapers + Theming Flow (How It Works)
+pickwall shows an fzf picker with image previews (kitty icat)
+On selection it calls setwall <image>
+setwall:
+Sets wallpaper via swww
+Runs wal -i <image> -n to generate palette
+Runs update-hypr-wal to write:
+~/.config/hypr/wal-colors.conf
+~/.config/hypr/wal-hyprlock.conf
+Restarts Waybar so it picks up ~/.cache/wal/colors-waybar.css
+Reloads Hyprland
+
+## Updating
+```bash
+cd ~/dotfiles
+git pull
+stow -R hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts
+stow -R --no-folding bin
+```
+
+## Uninstall (remove symlinks)
+```bash
+cd ~/dotfiles
+stow -D hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts
+stow -D --no-folding bin
+```
