@@ -76,7 +76,6 @@ refresh_pacman_mirrors_every_time() {
 
   echo "==> refreshing pacman mirrors (country=${country}, https, ipv4)..."
 
-  # Backup current mirrorlist (best effort)
   sudo cp -f /etc/pacman.d/mirrorlist "$bak" 2>/dev/null || true
 
   # Ensure time sync (TLS failures can happen with bad clocks)
@@ -84,7 +83,6 @@ refresh_pacman_mirrors_every_time() {
     sudo timedatectl set-ntp true >/dev/null 2>&1 || true
   fi
 
-  # Download fresh mirrorlist (best effort; continue even if it fails)
   if need_cmd curl; then
     sudo curl -fsSL "$url" -o /etc/pacman.d/mirrorlist || {
       echo "!! mirror refresh via curl failed; keeping existing mirrorlist."
@@ -100,8 +98,31 @@ refresh_pacman_mirrors_every_time() {
     return 0
   fi
 
-  # Uncomment Server lines
   sudo sed -i 's/^#Server/Server/' /etc/pacman.d/mirrorlist || true
+}
+
+# ---- Fix bad stow folding of ~/.local (prevents share/state landing in repo) ----
+unfold_local_if_broken() {
+  if [[ -L "$HOME/.local" ]]; then
+    local target
+    target="$(readlink -f "$HOME/.local" || true)"
+
+    # Only unfold if it points into our repo (common failure mode)
+    if [[ -n "$target" && "$target" == "$REPO_DIR/"* ]]; then
+      echo "==> Detected folded ~/.local -> $target"
+      echo "==> Unfolding ~/.local back to a real directory..."
+
+      rm -f "$HOME/.local"
+      mkdir -p "$HOME/.local/bin" "$HOME/.local/share" "$HOME/.local/state"
+
+      for d in share state; do
+        if [[ -d "$target/$d" ]]; then
+          echo "==> Moving $target/$d -> $HOME/.local/$d"
+          mv "$target/$d" "$HOME/.local/" || true
+        fi
+      done
+    fi
+  fi
 }
 
 echo "==> dotfiles installer"
@@ -115,7 +136,7 @@ fi
 # ---- Always refresh mirrors first ----
 refresh_pacman_mirrors_every_time
 
-# Base deps (needed for building yay + stow). Note: curl may already be present; harmless if it is.
+# Base deps (needed for building yay + stow).
 sudo pacman -Syyu --needed --noconfirm git stow base-devel curl
 
 # Pacman packages
@@ -200,13 +221,23 @@ backup_if_exists() {
 for d in hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts; do
   backup_if_exists "$HOME/.config/$d"
 done
+
+# NOTE: do NOT back up ~/.local as a whole; only ~/.local/bin when it's a real dir
 backup_if_exists "$HOME/.local/bin"
+
+# ---- Unfold ~/.local if a previous run caused stow folding ----
+unfold_local_if_broken
 
 # ---- Stow packages ----
 cd "$REPO_DIR"
-for pkg in hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts bin; do
+
+# stow ~/.config packages normally
+for pkg in hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts; do
   [[ -d "$REPO_DIR/$pkg" ]] && stow -v "$pkg"
 done
+
+# stow bin WITHOUT folding so ~/.local never becomes a symlink
+[[ -d "$REPO_DIR/bin" ]] && stow --no-folding -v bin
 
 # ---- Seed monitors override if missing ----
 if [[ ! -f "$HOME/.config/hypr/monitors.local.conf" ]] && [[ -f "$REPO_DIR/hypr/.config/hypr/monitors.local.conf.example" ]]; then
@@ -263,7 +294,6 @@ echo
 if prompt_yes_no "Would you like to download William's wallpaper pack now?" "n"; then
   echo "==> Installing wallpapers into: $WALLPAPER_DIR"
 
-  # Git LFS is required to fetch actual image content if repo uses LFS
   if ! need_cmd git-lfs; then
     echo "==> Installing git-lfs (required for high-res wallpapers)..."
     sudo pacman -S --needed --noconfirm git-lfs
