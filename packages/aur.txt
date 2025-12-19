@@ -1,3 +1,4 @@
 obsidian
 wlogout
 zen-browser-bin
+walker
