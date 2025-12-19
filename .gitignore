@@ -12,6 +12,14 @@ hypr/.config/hypr/wal-colors.conf
 hypr/.config/hypr/wal-hyprlock.conf
 **/.cache/wal/
 
+# App state / machine-local stuff
+obsidian/
+teams-for-linux/
+session/
+remmina/
+pnpm/
+
+
 # logs
 **/*.log
 

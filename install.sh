@@ -486,9 +486,31 @@ if [[ ! -f "$HOME/.config/hypr/wal-hyprlock.conf" ]] && [[ -f "$REPO_DIR/hypr/.c
   cp "$REPO_DIR/hypr/.config/hypr/wal-hyprlock.conf.example" "$HOME/.config/hypr/wal-hyprlock.conf"
 fi
 
-# Patch hardcoded username in walker/waybar themes to the current user
-sed -i "s|file:///home/william/|file:///home/${USER}/|g" "$HOME/.config/walker/themes/pywall/style.css" 2>/dev/null || true
-sed -i "s|file:///home/william/|file:///home/${USER}/|g" "$HOME/.config/waybar/style.css" 2>/dev/null || true
+# ---- Patch hardcoded /home/william paths to the current user's home ----
+patch_home_paths() {
+  local from="/home/william"
+  local to="$HOME"
+
+  # Only patch known text files (css/config) that sometimes contain hardcoded file:///home/william paths
+  local files=(
+    "$HOME/.config/waybar/style.css"
+    "$HOME/.config/walker/themes/pywall/style.css"
+    "$HOME/.config/gtk-3.0/gtk.css"
+    "$HOME/.config/gtk-4.0/gtk.css"
+    "$HOME/.config/wlogout/style.css"
+  )
+
+  for f in "${files[@]}"; do
+    [[ -f "$f" ]] || continue
+    # Replace both file:///home/william and plain /home/william just in case
+    sed -i \
+      -e "s|file:///home/william|file://$to|g" \
+      -e "s|$from|$to|g" \
+      "$f" || true
+  done
+}
+
+patch_home_paths
 
 # 14) Seed pywal cache for Waybar if missing
 mkdir -p "$HOME/.cache/wal"
