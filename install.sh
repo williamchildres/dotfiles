@@ -69,34 +69,23 @@ install_yay_if_missing() {
 # NETWORK + DNS PREFLIGHT
 # ---------------------------
 
-have_internet_basic() {
-  # Doesn't require DNS; tests raw connectivity.
-  ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1
-}
-
-have_dns() {
-  # DNS test (uses system resolver)
-  getent hosts archlinux.org >/dev/null 2>&1
-}
+have_internet_basic() { ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1; }
+have_dns() { getent hosts archlinux.org >/dev/null 2>&1; }
 
 start_network_stack_best_effort() {
-  if ! need_cmd systemctl; then
-    return 0
-  fi
+  if ! need_cmd systemctl; then return 0; fi
 
-  # If NetworkManager is installed, enable it (common desired state).
+  # If NetworkManager is installed, enable it (desired end state).
   if pacman -Qi networkmanager >/dev/null 2>&1; then
     sudo systemctl enable --now NetworkManager.service >/dev/null 2>&1 || true
   fi
 
-  # If systemd-networkd is enabled, make sure it's running.
+  # If systemd-networkd/resolved exist, start them (helps on minimal installs).
   sudo systemctl start systemd-networkd.service >/dev/null 2>&1 || true
   sudo systemctl start systemd-resolved.service >/dev/null 2>&1 || true
 }
 
 force_temp_resolv_conf() {
-  # Only used if DNS is broken. This is the most reliable “fresh install” fix.
-  # NOTE: If systemd-resolved manages resolv.conf as a symlink, we replace it.
   echo "==> DNS appears broken. Writing temporary /etc/resolv.conf (1.1.1.1, 8.8.8.8)..."
   sudo rm -f /etc/resolv.conf || true
   sudo tee /etc/resolv.conf >/dev/null <<'EOF'
@@ -108,11 +97,7 @@ EOF
 
 preflight_network_or_die() {
   echo "==> network preflight..."
-
-  # Try to start whatever networking exists
   start_network_stack_best_effort
-
-  # Give it a moment on fresh boots
   sleep 1
 
   if ! have_internet_basic; then
@@ -125,13 +110,11 @@ preflight_network_or_die() {
     force_temp_resolv_conf
   fi
 
-  # Re-check DNS
   if ! have_dns; then
     echo "!! DNS still failing (cannot resolve archlinux.org)."
-    echo "   Check your network stack:"
+    echo "   Check:"
     echo "     - systemctl status NetworkManager systemd-resolved"
     echo "     - cat /etc/resolv.conf"
-    echo "   Then rerun."
     exit 1
   fi
 
@@ -154,7 +137,6 @@ refresh_pacman_mirrors_every_time() {
     sudo timedatectl set-ntp true >/dev/null 2>&1 || true
   fi
 
-  # curl should exist on Arch ISO; if not, we try to install it later.
   if ! need_cmd curl; then
     echo "!! curl missing; cannot refresh mirrors. Continuing with existing mirrorlist."
     return 0
@@ -166,6 +148,8 @@ refresh_pacman_mirrors_every_time() {
   fi
 
   sudo sed -i 's/^#Server/Server/' /etc/pacman.d/mirrorlist || true
+
+  # Prune common bad/blocked mirrors + ftp
   sudo sed -i '/^Server = ftp:\/\//d;/osuosl/d;/osouos1/d' /etc/pacman.d/mirrorlist || true
 }
 
@@ -176,7 +160,7 @@ extract_failed_mirror_host() {
 pacman_retry() {
   local tries=5
   local n=1
-  local out host
+  local out host rc=0
 
   while ((n <= tries)); do
     echo "==> pacman attempt $n/$tries: pacman $*"
@@ -191,7 +175,6 @@ pacman_retry() {
 
     echo "$out" >&2
 
-    # If this is DNS, stop and fix DNS instead of retrying mirrors forever.
     if grep -qiE 'could not resolve host|name or service not known|temporary failure in name resolution' <<<"$out"; then
       echo "!! Detected DNS resolution failure during pacman."
       preflight_network_or_die
@@ -210,6 +193,19 @@ pacman_retry() {
   done
 
   echo "!! pacman failed after $tries attempts." >&2
+  return 1
+}
+
+# ---------------------------
+# NetworkManager adoption (don’t cut over until connected)
+# ---------------------------
+
+wait_for_nm_connected() {
+  local i
+  for i in {1..20}; do
+    nmcli -t -f STATE general status 2>/dev/null | grep -q '^connected$' && return 0
+    sleep 1
+  done
   return 1
 }
 
@@ -233,6 +229,40 @@ unfold_local_if_broken() {
   fi
 }
 
+# ---------------------------
+# Patch hardcoded /home/william -> current $HOME (for cloned systems)
+# ---------------------------
+
+patch_home_paths_in_configs() {
+  # Only patch if files contain /home/william (your build username)
+  local old="/home/william"
+  local new="$HOME"
+  local files=(
+    "$HOME/.config/waybar/style.css"
+    "$HOME/.config/hypr/hyprland.conf"
+    "$HOME/.config/hypr/hyprlock.conf"
+    "$HOME/.config/hypr/hypridle.conf"
+    "$HOME/.config/kitty/kitty.conf"
+    "$HOME/.config/scripts/powerprofile.sh"
+    "$HOME/.config/scripts/screenshot.sh"
+  )
+
+  local f
+  for f in "${files[@]}"; do
+    [[ -f "$f" ]] || continue
+    if grep -q "$old" "$f"; then
+      echo "==> Patching home path in: $f"
+      sed -i "s#${old}#${new}#g" "$f" || true
+    fi
+  done
+
+  # Additionally, patch any file:// import that points at /home/william/.cache/wal
+  local wb="$HOME/.config/waybar/style.css"
+  if [[ -f "$wb" ]]; then
+    sed -i "s#file:///home/william/#file://$HOME/#g" "$wb" 2>/dev/null || true
+  fi
+}
+
 echo "==> dotfiles installer"
 echo "==> repo: $REPO_DIR"
 
@@ -241,10 +271,10 @@ if ! need_cmd pacman; then
   exit 1
 fi
 
-# 0) Preflight network + DNS (fixes your current failure mode)
+# 0) Preflight network + DNS
 preflight_network_or_die
 
-# 1) Refresh mirrors (now DNS works)
+# 1) Refresh mirrors (DNS ok)
 refresh_pacman_mirrors_every_time
 
 # 2) Base deps
@@ -264,16 +294,23 @@ if ((${#AUR_PKGS[@]} > 0)); then
   yay -S --needed --noconfirm "${AUR_PKGS[@]}"
 fi
 
-# ---- Enable key services if present ----
+# ---- Enable/adopt key services ----
 if need_cmd systemctl; then
-  # Networking: prefer NetworkManager if installed
+  # Networking: prefer NetworkManager if installed; don't disable others until connected.
   if pacman -Qi networkmanager >/dev/null 2>&1; then
     sudo systemctl enable --now NetworkManager.service
-    sudo systemctl disable --now systemd-networkd.service 2>/dev/null || true
-    sudo systemctl disable --now dhcpcd.service 2>/dev/null || true
+
+    if need_cmd nmcli && wait_for_nm_connected; then
+      sudo systemctl disable --now systemd-networkd.service 2>/dev/null || true
+      sudo systemctl disable --now dhcpcd.service 2>/dev/null || true
+    else
+      echo "!! NetworkManager enabled but not connected yet."
+      echo "   Not disabling systemd-networkd/dhcpcd to avoid losing networking."
+      echo "   If you're on Wi-Fi, run: nmtui  (or: nmcli dev wifi connect ...)"
+    fi
   fi
 
-  # Power profiles
+  # Power profiles daemon
   if pacman -Qi power-profiles-daemon >/dev/null 2>&1; then
     sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null || true
   fi
@@ -292,6 +329,7 @@ if [[ "$has_greeter" == "false" ]]; then
   echo "==> No greeter detected. Installing greetd + tuigreet..."
   pacman_retry -S --needed --noconfirm greetd
 
+  # Arch commonly ships tuigreet as greetd-tuigreet
   if pacman -Si greetd-tuigreet >/dev/null 2>&1; then
     pacman_retry -S --needed --noconfirm greetd-tuigreet
   else
@@ -351,7 +389,7 @@ if [[ ! -f "$HOME/.config/hypr/wal-hyprlock.conf" ]] && [[ -f "$REPO_DIR/hypr/.c
   cp "$REPO_DIR/hypr/.config/hypr/wal-hyprlock.conf.example" "$HOME/.config/hypr/wal-hyprlock.conf"
 fi
 
-# ---- Seed pywal cache for Waybar if missing ----
+# ---- Seed pywal cache for Waybar if missing (prevents Waybar failing on first boot) ----
 mkdir -p "$HOME/.cache/wal"
 if [[ ! -f "$HOME/.cache/wal/colors-waybar.css" ]]; then
   cat >"$HOME/.cache/wal/colors-waybar.css" <<'EOF'
@@ -377,6 +415,9 @@ if [[ ! -f "$HOME/.cache/wal/colors-waybar.css" ]]; then
 @define-color color15 #b1bccf;
 EOF
 fi
+
+# ---- Patch /home/william -> $HOME anywhere it exists (fixes new username installs) ----
+patch_home_paths_in_configs
 
 echo "==> done. backup (if any): $BACKUP_DIR"
 if [[ "$has_greeter" == "false" ]]; then
