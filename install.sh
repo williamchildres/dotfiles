@@ -486,6 +486,10 @@ if [[ ! -f "$HOME/.config/hypr/wal-hyprlock.conf" ]] && [[ -f "$REPO_DIR/hypr/.c
   cp "$REPO_DIR/hypr/.config/hypr/wal-hyprlock.conf.example" "$HOME/.config/hypr/wal-hyprlock.conf"
 fi
 
+# Patch hardcoded username in walker/waybar themes to the current user
+sed -i "s|file:///home/william/|file:///home/${USER}/|g" "$HOME/.config/walker/themes/pywall/style.css" 2>/dev/null || true
+sed -i "s|file:///home/william/|file:///home/${USER}/|g" "$HOME/.config/waybar/style.css" 2>/dev/null || true
+
 # 14) Seed pywal cache for Waybar if missing
 mkdir -p "$HOME/.cache/wal"
 if [[ ! -f "$HOME/.cache/wal/colors-waybar.css" ]]; then

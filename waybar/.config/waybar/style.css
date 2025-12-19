@@ -1,8 +1,6 @@
 /* Pull colors from pywal (generated when you run `wal`) */
+/*@import url("file:///var/tmp/wal/colors-walker.css");*/
 @import url("file:///home/william/.cache/wal/colors-waybar.css");
-/* If that ever fails, switch to:
-   @import url("file:///home/william/.cache/wal/colors.css");
-*/
 
 * {
     font-family: "Hack Nerd Font", "Hack Nerd Font Mono", sans-serif;
