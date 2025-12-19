@@ -42,3 +42,8 @@ openbsd-netcat
 python-pywal
 ttf-hack-nerd
 
+# Utils
+xdg-utils
+fd
+ripgrep
+
