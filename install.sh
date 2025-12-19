@@ -14,7 +14,6 @@ WALLPAPER_DIR="$HOME/Pictures/wallpapers"
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 read_pkg_list() {
-  # Reads a list file into array name passed as $1; strips comments/blank lines.
   local __arr_name="$1"
   local __file="$2"
   local __tmp=()
@@ -29,24 +28,11 @@ read_pkg_list() {
   eval "$__arr_name=(\"\${__tmp[@]}\")"
 }
 
-install_yay_if_missing() {
-  if ! need_cmd yay; then
-    echo "==> installing yay (AUR helper)..."
-    local tmp
-    tmp="$(mktemp -d)"
-    git clone https://aur.archlinux.org/yay.git "$tmp/yay"
-    (cd "$tmp/yay" && makepkg -si --noconfirm)
-    rm -rf "$tmp"
-  fi
-}
-
 prompt_yes_no() {
-  # Usage: prompt_yes_no "Question?" "y|n"
   local q="${1:?}"
   local def="${2:-n}"
   local ans
 
-  # Non-interactive runs default to "no"
   if [[ ! -t 0 ]]; then
     [[ "$def" == "y" ]] && return 0 || return 1
   fi
@@ -68,55 +54,126 @@ prompt_yes_no() {
   done
 }
 
-# --- Mirror refresh that works even on fresh/broken machines ---
-# Uses Arch mirrorlist endpoint (https only), strips ftp and known flaky mirrors,
-# then pacman with retries and auto-prune of the mirror that just failed.
+install_yay_if_missing() {
+  if ! need_cmd yay; then
+    echo "==> installing yay (AUR helper)..."
+    local tmp
+    tmp="$(mktemp -d)"
+    git clone https://aur.archlinux.org/yay.git "$tmp/yay"
+    (cd "$tmp/yay" && makepkg -si --noconfirm)
+    rm -rf "$tmp"
+  fi
+}
+
+# ---------------------------
+# NETWORK + DNS PREFLIGHT
+# ---------------------------
+
+have_internet_basic() {
+  # Doesn't require DNS; tests raw connectivity.
+  ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1
+}
+
+have_dns() {
+  # DNS test (uses system resolver)
+  getent hosts archlinux.org >/dev/null 2>&1
+}
+
+start_network_stack_best_effort() {
+  if ! need_cmd systemctl; then
+    return 0
+  fi
+
+  # If NetworkManager is installed, enable it (common desired state).
+  if pacman -Qi networkmanager >/dev/null 2>&1; then
+    sudo systemctl enable --now NetworkManager.service >/dev/null 2>&1 || true
+  fi
+
+  # If systemd-networkd is enabled, make sure it's running.
+  sudo systemctl start systemd-networkd.service >/dev/null 2>&1 || true
+  sudo systemctl start systemd-resolved.service >/dev/null 2>&1 || true
+}
+
+force_temp_resolv_conf() {
+  # Only used if DNS is broken. This is the most reliable “fresh install” fix.
+  # NOTE: If systemd-resolved manages resolv.conf as a symlink, we replace it.
+  echo "==> DNS appears broken. Writing temporary /etc/resolv.conf (1.1.1.1, 8.8.8.8)..."
+  sudo rm -f /etc/resolv.conf || true
+  sudo tee /etc/resolv.conf >/dev/null <<'EOF'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+options timeout:1 attempts:2 rotate
+EOF
+}
+
+preflight_network_or_die() {
+  echo "==> network preflight..."
+
+  # Try to start whatever networking exists
+  start_network_stack_best_effort
+
+  # Give it a moment on fresh boots
+  sleep 1
+
+  if ! have_internet_basic; then
+    echo "!! No basic internet connectivity (cannot ping 1.1.1.1)."
+    echo "   Fix network first (VM NAT/bridge, Wi-Fi, etc.), then rerun."
+    exit 1
+  fi
+
+  if ! have_dns; then
+    force_temp_resolv_conf
+  fi
+
+  # Re-check DNS
+  if ! have_dns; then
+    echo "!! DNS still failing (cannot resolve archlinux.org)."
+    echo "   Check your network stack:"
+    echo "     - systemctl status NetworkManager systemd-resolved"
+    echo "     - cat /etc/resolv.conf"
+    echo "   Then rerun."
+    exit 1
+  fi
+
+  echo "==> network OK (internet + DNS)."
+}
+
+# ---------------------------
+# MIRRORS + PACMAN WITH RETRIES
+# ---------------------------
+
 refresh_pacman_mirrors_every_time() {
   local country="${MIRROR_COUNTRY:-US}"
   local url="https://archlinux.org/mirrorlist/?country=${country}&protocol=https&ip_version=4&use_mirror_status=on"
   local bak="/etc/pacman.d/mirrorlist.bak.$(date +%Y%m%d-%H%M%S)"
 
   echo "==> refreshing pacman mirrors (country=${country}, https, ipv4)..."
-
   sudo cp -f /etc/pacman.d/mirrorlist "$bak" 2>/dev/null || true
 
-  # Ensure time sync (TLS failures can happen with bad clocks)
   if need_cmd timedatectl; then
     sudo timedatectl set-ntp true >/dev/null 2>&1 || true
   fi
 
-  # Ensure curl exists (on very bare installs it usually does, but be safe)
+  # curl should exist on Arch ISO; if not, we try to install it later.
   if ! need_cmd curl; then
-    echo "==> curl missing; attempting to install curl using existing mirrors..."
-    sudo pacman -Sy --needed --noconfirm curl || true
-  fi
-
-  if ! need_cmd curl; then
-    echo "!! curl still missing; cannot refresh mirrors. Continuing with existing mirrorlist."
+    echo "!! curl missing; cannot refresh mirrors. Continuing with existing mirrorlist."
     return 0
   fi
 
-  sudo curl -fsSL "$url" -o /etc/pacman.d/mirrorlist || {
-    echo "!! mirror refresh failed; keeping existing mirrorlist."
+  if ! sudo curl -fsSL "$url" -o /etc/pacman.d/mirrorlist; then
+    echo "!! mirror refresh failed: keeping existing mirrorlist"
     return 0
-  }
+  fi
 
-  # Uncomment Server lines
   sudo sed -i 's/^#Server/Server/' /etc/pacman.d/mirrorlist || true
-
-  # Hard remove ftp mirrors + known flaky domain(s)
   sudo sed -i '/^Server = ftp:\/\//d;/osuosl/d;/osouos1/d' /etc/pacman.d/mirrorlist || true
 }
 
 extract_failed_mirror_host() {
-  # Best-effort parse: pacman prints lines like:
-  # "failed retrieving file 'pkg' from mirror.domain : error: ..."
-  # We'll scrape stdout/stderr captured by pacman_retry.
   sed -nE "s/.*failed retrieving file '.*' from ([^ ]+).*/\1/p" | tail -n 1
 }
 
 pacman_retry() {
-  # Usage: pacman_retry -Syyu --needed --noconfirm pkg1 pkg2 ...
   local tries=5
   local n=1
   local out host
@@ -134,13 +191,18 @@ pacman_retry() {
 
     echo "$out" >&2
 
+    # If this is DNS, stop and fix DNS instead of retrying mirrors forever.
+    if grep -qiE 'could not resolve host|name or service not known|temporary failure in name resolution' <<<"$out"; then
+      echo "!! Detected DNS resolution failure during pacman."
+      preflight_network_or_die
+    fi
+
     host="$(printf "%s\n" "$out" | extract_failed_mirror_host || true)"
     echo "!! pacman failed. Refreshing mirrors and pruning host: ${host:-unknown}" >&2
 
     refresh_pacman_mirrors_every_time
 
     if [[ -n "${host:-}" ]]; then
-      # Remove any mirror lines containing this host (both http and https)
       sudo sed -i "\#${host}#d" /etc/pacman.d/mirrorlist || true
     fi
 
@@ -156,15 +218,11 @@ unfold_local_if_broken() {
   if [[ -L "$HOME/.local" ]]; then
     local target
     target="$(readlink -f "$HOME/.local" || true)"
-
-    # Only unfold if it points into our repo (common failure mode)
     if [[ -n "$target" && "$target" == "$REPO_DIR/"* ]]; then
       echo "==> Detected folded ~/.local -> $target"
       echo "==> Unfolding ~/.local back to a real directory..."
-
       rm -f "$HOME/.local"
       mkdir -p "$HOME/.local/bin" "$HOME/.local/share" "$HOME/.local/state"
-
       for d in share state; do
         if [[ -d "$target/$d" ]]; then
           echo "==> Moving $target/$d -> $HOME/.local/$d"
@@ -183,19 +241,22 @@ if ! need_cmd pacman; then
   exit 1
 fi
 
-# ---- Always refresh mirrors first ----
+# 0) Preflight network + DNS (fixes your current failure mode)
+preflight_network_or_die
+
+# 1) Refresh mirrors (now DNS works)
 refresh_pacman_mirrors_every_time
 
-# Base deps (needed for building yay + stow).
+# 2) Base deps
 pacman_retry -Syyu --needed --noconfirm git stow base-devel curl
 
-# Pacman packages
+# 3) Pacman packages
 read_pkg_list PAC_PKGS "$PACMAN_LIST"
 if ((${#PAC_PKGS[@]} > 0)); then
   pacman_retry -S --needed --noconfirm "${PAC_PKGS[@]}"
 fi
 
-# AUR packages via yay
+# 4) AUR packages via yay
 read_pkg_list AUR_PKGS "$AUR_LIST"
 if ((${#AUR_PKGS[@]} > 0)); then
   install_yay_if_missing
@@ -231,16 +292,10 @@ if [[ "$has_greeter" == "false" ]]; then
   echo "==> No greeter detected. Installing greetd + tuigreet..."
   pacman_retry -S --needed --noconfirm greetd
 
-  # Arch commonly ships tuigreet as greetd-tuigreet
   if pacman -Si greetd-tuigreet >/dev/null 2>&1; then
     pacman_retry -S --needed --noconfirm greetd-tuigreet
   else
-    if pacman -Si tuigreet >/dev/null 2>&1; then
-      pacman_retry -S --needed --noconfirm tuigreet
-    else
-      install_yay_if_missing
-      yay -S --needed --noconfirm tuigreet
-    fi
+    pacman_retry -S --needed --noconfirm tuigreet
   fi
 
   echo "==> Configuring /etc/greetd/config.toml ..."
@@ -271,8 +326,6 @@ backup_if_exists() {
 for d in hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts; do
   backup_if_exists "$HOME/.config/$d"
 done
-
-# NOTE: do NOT back up ~/.local as a whole; only ~/.local/bin when it's a real dir
 backup_if_exists "$HOME/.local/bin"
 
 # ---- Unfold ~/.local if a previous run caused stow folding ----
@@ -280,13 +333,9 @@ unfold_local_if_broken
 
 # ---- Stow packages ----
 cd "$REPO_DIR"
-
-# stow ~/.config packages normally
 for pkg in hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts; do
   [[ -d "$REPO_DIR/$pkg" ]] && stow -v "$pkg"
 done
-
-# stow bin WITHOUT folding so ~/.local never becomes a symlink
 [[ -d "$REPO_DIR/bin" ]] && stow --no-folding -v bin
 
 # ---- Seed monitors override if missing ----
@@ -298,12 +347,11 @@ fi
 if [[ ! -f "$HOME/.config/hypr/wal-colors.conf" ]] && [[ -f "$REPO_DIR/hypr/.config/hypr/wal-colors.conf.example" ]]; then
   cp "$REPO_DIR/hypr/.config/hypr/wal-colors.conf.example" "$HOME/.config/hypr/wal-colors.conf"
 fi
-
 if [[ ! -f "$HOME/.config/hypr/wal-hyprlock.conf" ]] && [[ -f "$REPO_DIR/hypr/.config/hypr/wal-hyprlock.conf.example" ]]; then
   cp "$REPO_DIR/hypr/.config/hypr/wal-hyprlock.conf.example" "$HOME/.config/hypr/wal-hyprlock.conf"
 fi
 
-# ---- Seed pywal cache for Waybar if missing (prevents Waybar failing on first boot) ----
+# ---- Seed pywal cache for Waybar if missing ----
 mkdir -p "$HOME/.cache/wal"
 if [[ ! -f "$HOME/.cache/wal/colors-waybar.css" ]]; then
   cat >"$HOME/.cache/wal/colors-waybar.css" <<'EOF'
