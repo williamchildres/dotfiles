@@ -38,6 +38,8 @@ playerctl
 # Power
 # ------------------------------------------------------------
 power-profiles-daemon
+python-gobject
+gobject-introspection
 
 # ------------------------------------------------------------
 # Network
