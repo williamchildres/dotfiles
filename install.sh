@@ -66,11 +66,25 @@ install_yay_if_missing() {
 }
 
 # ---------------------------
-# NETWORK + DNS PREFLIGHT
+# NETWORK + DNS (TCP-first)
 # ---------------------------
 
-have_internet_basic() { ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1; }
-have_dns() { getent hosts archlinux.org >/dev/null 2>&1; }
+have_route() {
+  ip route show default >/dev/null 2>&1
+}
+
+have_internet_basic() {
+  # TCP checks (what pacman needs). Prefer IPv4.
+  curl -4 -fsI --connect-timeout 2 --max-time 6 https://geo.mirror.pkgbuild.com >/dev/null 2>&1 && return 0
+  # fallback to ICMP
+  ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1 && return 0
+  ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1 && return 0
+  return 1
+}
+
+have_dns() {
+  getent hosts archlinux.org >/dev/null 2>&1
+}
 
 force_temp_resolv_conf() {
   echo "==> DNS appears broken. Writing temporary /etc/resolv.conf (1.1.1.1, 8.8.8.8)..."
@@ -82,6 +96,16 @@ options timeout:1 attempts:2 rotate
 EOF
 }
 
+prefer_ipv4_best_effort() {
+  # Helps when IPv6 exists but is broken (common in VMs / some wifi).
+  if [[ -f /etc/gai.conf ]]; then
+    sudo sed -i 's/^[# ]*precedence ::ffff:0:0\/96.*/precedence ::ffff:0:0\/96  100/' /etc/gai.conf || true
+    if ! grep -q '^precedence ::ffff:0:0/96' /etc/gai.conf; then
+      echo 'precedence ::ffff:0:0/96  100' | sudo tee -a /etc/gai.conf >/dev/null
+    fi
+  fi
+}
+
 preflight_network_or_die() {
   echo "==> network preflight..."
 
@@ -89,19 +113,25 @@ preflight_network_or_die() {
     sudo timedatectl set-ntp true >/dev/null 2>&1 || true
   fi
 
-  # Best-effort start common stacks
   if need_cmd systemctl; then
+    # Start resolver first, then network (best effort)
     sudo systemctl start systemd-resolved.service >/dev/null 2>&1 || true
-    sudo systemctl start systemd-networkd.service >/dev/null 2>&1 || true
-    sudo systemctl start iwd.service >/dev/null 2>&1 || true
     sudo systemctl start NetworkManager.service >/dev/null 2>&1 || true
+    sudo systemctl start iwd.service >/dev/null 2>&1 || true
+    sudo systemctl start systemd-networkd.service >/dev/null 2>&1 || true
   fi
 
-  sleep 1
+  sleep 2
+
+  if ! have_route; then
+    echo "!! No default route detected."
+    echo "   Fix network first (Wi-Fi/NAT/bridge), then rerun."
+    exit 1
+  fi
 
   if ! have_internet_basic; then
-    echo "!! No basic internet connectivity (cannot ping 1.1.1.1)."
-    echo "   Fix network first (Wi-Fi/NAT/bridge), then rerun."
+    echo "!! No internet detected (TCP/ICMP checks failed)."
+    echo "   Fix network first, then rerun."
     exit 1
   fi
 
@@ -115,146 +145,71 @@ preflight_network_or_die() {
     exit 1
   fi
 
-  echo "==> network OK (internet + DNS)."
+  prefer_ipv4_best_effort
+
+  echo "==> network OK (route + internet + DNS)."
 }
 
 # ---------------------------
-# MIRRORS: RELIABLE + TESTED
+# MIRRORS + PACMAN RETRIES
 # ---------------------------
 
-mirrorlist_write_baseline() {
-  # A small baseline list that is usually reachable (geo CDN first).
-  sudo tee /etc/pacman.d/mirrorlist >/dev/null <<'EOF'
-## Baseline mirrorlist (installer)
-Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
-Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
-EOF
-}
-
-mirrorlist_fetch_official() {
-  # Pull the official list (HTTPS + IPv4 only). Best effort.
+refresh_mirrors_reflector_first() {
   local country="${MIRROR_COUNTRY:-US}"
-  local url="https://archlinux.org/mirrorlist/?country=${country}&protocol=https&ip_version=4&use_mirror_status=on"
+  local bak="/etc/pacman.d/mirrorlist.bak.$(date +%Y%m%d-%H%M%S)"
 
-  if ! need_cmd curl; then
-    echo "!! curl missing; cannot fetch official mirrorlist."
-    return 1
+  echo "==> refreshing pacman mirrors (reflector preferred, country=${country})..."
+  sudo cp -f /etc/pacman.d/mirrorlist "$bak" 2>/dev/null || true
+
+  # ensure reflector exists (from official repos)
+  if ! need_cmd reflector; then
+    # don't use pacman_retry yet (it depends on mirrorlist); use plain pacman best effort
+    sudo pacman -Sy --needed --noconfirm reflector >/dev/null 2>&1 || true
   fi
 
-  # Save to temp and uncomment Server lines
-  local tmp
-  tmp="$(mktemp)"
-  if ! curl -fsSL "$url" -o "$tmp"; then
-    rm -f "$tmp"
-    return 1
+  if need_cmd reflector; then
+    # HTTPS only, recent, fast
+    if sudo reflector \
+      --country "$country" \
+      --protocol https \
+      --age 24 \
+      --latest 30 \
+      --sort rate \
+      --save /etc/pacman.d/mirrorlist; then
+      return 0
+    fi
   fi
 
-  # Uncomment Servers and drop ftp/rsync
-  sed -i 's/^#Server/Server/' "$tmp"
-  sed -i '/^Server = ftp:\/\//d;/^Server = rsync:\/\//d' "$tmp"
+  # Fallback: archlinux.org mirrorlist generator
+  if need_cmd curl; then
+    local url="https://archlinux.org/mirrorlist/?country=${country}&protocol=https&ip_version=4&use_mirror_status=on"
+    if sudo curl -fsSL "$url" -o /etc/pacman.d/mirrorlist; then
+      sudo sed -i 's/^#Server/Server/' /etc/pacman.d/mirrorlist || true
+      return 0
+    fi
+  fi
 
-  # Prune known trouble patterns you’ve hit
-  # (you can add more here as you encounter them)
-  sed -i '/rackspace/d;/dfw/d;/osuosl/d;/osouos1/d;/ftp\./d' "$tmp"
-
-  # Append to baseline (keep baseline at top)
-  sudo bash -c "cat '$tmp' >> /etc/pacman.d/mirrorlist"
-  rm -f "$tmp"
+  echo "!! mirror refresh failed; keeping existing mirrorlist."
   return 0
 }
 
-mirror_url_test() {
-  # Test a "Server = ..." URL by HEADing core.db
-  # Args: full_server_url_with_$repo_$arch tokens
-  local server="$1"
-  local test_url
-  test_url="${server/\$repo/core}"
-  test_url="${test_url/\$arch/x86_64}"
-  test_url="${test_url%/}/core.db"
-
-  curl -fsI --connect-timeout 2 --max-time 6 "$test_url" >/dev/null 2>&1
-}
-
-mirrorlist_reduce_to_working() {
-  # Keep only mirrors that respond quickly.
-  # Always keep the first baseline geo CDN even if tests are flaky.
-  local keep_max="${MIRROR_KEEP_MAX:-12}"
-
-  local servers=()
-  while IFS= read -r line; do
-    [[ "$line" =~ ^Server[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
-    servers+=("${BASH_REMATCH[1]}")
-  done < <(sudo cat /etc/pacman.d/mirrorlist)
-
-  # Build new list
-  local out tmp
-  tmp="$(mktemp)"
-
-  # Always keep the first two baseline entries (they’re already at top in baseline)
-  # We’ll rewrite them explicitly to ensure they exist.
-  {
-    echo "## Tested mirrorlist (installer)"
-    echo "Server = https://geo.mirror.pkgbuild.com/\$repo/os/\$arch"
-    echo "Server = https://mirrors.kernel.org/archlinux/\$repo/os/\$arch"
-  } >"$tmp"
-
-  local kept=0
-  local s
-  for s in "${servers[@]}"; do
-    # skip duplicates of our baseline
-    [[ "$s" == "https://geo.mirror.pkgbuild.com/"* ]] && continue
-    [[ "$s" == "https://mirrors.kernel.org/archlinux/"* ]] && continue
-
-    if mirror_url_test "$s"; then
-      echo "Server = $s" >>"$tmp"
-      kept=$((kept + 1))
-      [[ $kept -ge $keep_max ]] && break
-    fi
-  done
-
-  sudo cp -f "$tmp" /etc/pacman.d/mirrorlist
-  rm -f "$tmp"
-}
-
-refresh_pacman_mirrors_every_time() {
-  local bak="/etc/pacman.d/mirrorlist.bak.$(date +%Y%m%d-%H%M%S)"
-  echo "==> building reliable pacman mirrorlist..."
-
-  sudo cp -f /etc/pacman.d/mirrorlist "$bak" 2>/dev/null || true
-
-  if need_cmd timedatectl; then
-    sudo timedatectl set-ntp true >/dev/null 2>&1 || true
-  fi
-
-  # 1) Baseline first (so we never end up with an empty/bad list)
-  mirrorlist_write_baseline
-
-  # 2) Try to fetch official list and append (best effort)
-  if mirrorlist_fetch_official; then
-    echo "==> fetched official mirrorlist."
-  else
-    echo "!! failed to fetch official mirrorlist; using baseline only."
-  fi
-
-  # 3) Reduce to mirrors that actually answer
-  mirrorlist_reduce_to_working
-
-  echo "==> mirrorlist ready."
-}
-
 extract_failed_mirror_host() {
-  # Handles:
-  # - "failed retrieving file ... from <host>"
-  # - "failed to connect to <host>"
-  sed -nE \
-    -e "s/.*failed retrieving file '.*' from ([^ :]+).*/\1/p" \
-    -e "s/.*failed to connect to ([^ :]+).*/\1/p" \
-    -e "s/.*failed to download .* from ([^ :]+).*/\1/p" |
-    tail -n 1
+  sed -nE "s/.*failed retrieving file '.*' from ([^ ]+).*/\1/p" | tail -n 1
+}
+
+prune_bad_mirrors_best_effort() {
+  # Remove mirrors you’ve hit repeatedly (and ftp).
+  sudo sed -i \
+    -e '/^Server = ftp:\/\//d' \
+    -e '/osuosl/d' \
+    -e '/rackspace/d' \
+    -e '/dfw\.mirror\.rackspace/d' \
+    -e '/osouos1/d' \
+    /etc/pacman.d/mirrorlist 2>/dev/null || true
 }
 
 pacman_retry() {
-  local tries=8
+  local tries=6
   local n=1
   local out host rc
 
@@ -271,23 +226,33 @@ pacman_retry() {
 
     echo "$out" >&2
 
+    # DNS-looking errors: only repair if DNS is actually failing NOW.
     if grep -qiE 'could not resolve host|name or service not known|temporary failure in name resolution' <<<"$out"; then
-      echo "!! Detected DNS resolution failure during pacman."
-      preflight_network_or_die
+      if have_dns; then
+        echo "!! pacman printed DNS-looking error, but DNS currently works."
+        echo "   Treating as transient mirror/network hiccup; rebuilding mirrorlist and retrying..."
+      else
+        echo "!! Detected real DNS failure during pacman; attempting repair..."
+        force_temp_resolv_conf
+        sleep 1
+        if ! have_dns; then
+          preflight_network_or_die
+        fi
+      fi
     fi
 
     host="$(printf "%s\n" "$out" | extract_failed_mirror_host || true)"
-    echo "!! pacman failed. Rebuilding mirrorlist and pruning host: ${host:-unknown}" >&2
+    echo "!! pacman failed. Refreshing mirrors and pruning host: ${host:-unknown}" >&2
 
-    refresh_pacman_mirrors_every_time
+    refresh_mirrors_reflector_first
+    prune_bad_mirrors_best_effort
 
     if [[ -n "${host:-}" ]]; then
-      # remove any mirror lines containing that host
       sudo sed -i "\#${host}#d" /etc/pacman.d/mirrorlist || true
     fi
 
     ((n++))
-    sleep 1
+    sleep 2
   done
 
   echo "!! pacman failed after $tries attempts." >&2
@@ -295,148 +260,7 @@ pacman_retry() {
 }
 
 # ---------------------------
-# NETWORKMANAGER MIGRATION (unchanged)
-# ---------------------------
-
-get_wifi_dev() {
-  if need_cmd nmcli; then
-    nmcli -t -f DEVICE,TYPE dev status | awk -F: '$2=="wifi"{print $1; exit}'
-    return 0
-  fi
-  if need_cmd iw; then
-    iw dev 2>/dev/null | awk '$1=="Interface"{print $2; exit}'
-    return 0
-  fi
-  echo ""
-}
-
-get_active_ssid() {
-  if need_cmd iwgetid; then
-    iwgetid -r 2>/dev/null || true
-    return 0
-  fi
-  local dev
-  dev="$(get_wifi_dev)"
-  [[ -z "$dev" ]] && {
-    echo ""
-    return 0
-  }
-  if need_cmd iw; then
-    iw dev "$dev" link 2>/dev/null | sed -nE 's/^\s*SSID:\s*(.*)$/\1/p' | head -n1 || true
-  else
-    echo ""
-  fi
-}
-
-iwd_read_passphrase_for_ssid() {
-  local ssid="$1"
-  local f="/var/lib/iwd/${ssid}.psk"
-  [[ -f "$f" ]] || return 0
-
-  local pass
-  pass="$(sudo sed -nE 's/^\s*Passphrase=(.*)$/\1/p' "$f" | head -n1 || true)"
-  if [[ -z "$pass" ]]; then
-    pass="$(sudo sed -nE 's/^\s*PreSharedKey=(.*)$/\1/p' "$f" | head -n1 || true)"
-  fi
-  printf "%s" "$pass"
-}
-
-nm_add_wifi_connection_keyfile() {
-  local dev="$1"
-  local ssid="$2"
-  local pass="$3"
-
-  if nmcli -t -f NAME con show | grep -Fxq "$ssid"; then
-    return 0
-  fi
-
-  nmcli con add type wifi ifname "$dev" con-name "$ssid" ssid "$ssid" >/dev/null
-  nmcli con modify "$ssid" wifi-sec.key-mgmt wpa-psk
-  nmcli con modify "$ssid" wifi-sec.psk "$pass"
-  nmcli con modify "$ssid" connection.autoconnect yes
-}
-
-import_iwd_profiles_into_nm() {
-  local dev
-  dev="$(get_wifi_dev)"
-  [[ -z "$dev" ]] && {
-    echo "==> no wifi device detected; skipping iwd import."
-    return 0
-  }
-
-  [[ -d /var/lib/iwd ]] || {
-    echo "==> no /var/lib/iwd profiles found; skipping iwd import."
-    return 0
-  }
-
-  echo "==> importing iwd Wi-Fi profiles into NetworkManager..."
-
-  local ssid pass
-  ssid="$(get_active_ssid)"
-  if [[ -n "$ssid" ]]; then
-    pass="$(iwd_read_passphrase_for_ssid "$ssid" || true)"
-    if [[ -n "$pass" ]]; then
-      echo "==> importing active SSID: $ssid"
-      nm_add_wifi_connection_keyfile "$dev" "$ssid" "$pass" || true
-    else
-      echo "==> active SSID '$ssid' has no readable passphrase in iwd (skipping)."
-    fi
-  fi
-
-  while IFS= read -r -d '' file; do
-    local name
-    name="$(basename "$file")"
-    ssid="${name%.psk}"
-
-    pass="$(sudo sed -nE 's/^\s*Passphrase=(.*)$/\1/p' "$file" | head -n1 || true)"
-    if [[ -z "$pass" ]]; then
-      pass="$(sudo sed -nE 's/^\s*PreSharedKey=(.*)$/\1/p' "$file" | head -n1 || true)"
-    fi
-    [[ -z "$pass" ]] && continue
-
-    nm_add_wifi_connection_keyfile "$dev" "$ssid" "$pass" || true
-  done < <(sudo find /var/lib/iwd -maxdepth 1 -type f -name '*.psk' -print0 2>/dev/null)
-
-  echo "==> iwd import complete."
-}
-
-enable_nm_and_takeover_network() {
-  if ! need_cmd systemctl; then return 0; fi
-
-  if ! pacman -Qi networkmanager >/dev/null 2>&1; then
-    echo "==> installing NetworkManager..."
-    pacman_retry -S --needed --noconfirm networkmanager
-  fi
-
-  echo "==> enabling NetworkManager..."
-  sudo systemctl enable --now NetworkManager.service >/dev/null 2>&1 || true
-  sudo systemctl restart NetworkManager.service >/dev/null 2>&1 || true
-
-  import_iwd_profiles_into_nm
-
-  nmcli networking on >/dev/null 2>&1 || true
-  nmcli radio wifi on >/dev/null 2>&1 || true
-
-  local any_conn
-  any_conn="$(nmcli -t -f NAME con show 2>/dev/null | head -n1 || true)"
-  if [[ -n "$any_conn" ]]; then
-    nmcli con up "$any_conn" >/dev/null 2>&1 || true
-  fi
-
-  if have_internet_basic && have_dns; then
-    echo "==> NetworkManager has working connectivity. Disabling old network stack..."
-    sudo systemctl disable --now systemd-networkd.service 2>/dev/null || true
-    sudo systemctl disable --now dhcpcd.service 2>/dev/null || true
-    sudo systemctl disable --now iwd.service 2>/dev/null || true
-  else
-    echo "!! NetworkManager takeover didn’t achieve connectivity yet."
-    echo "   Leaving existing services enabled to avoid breaking network."
-    echo "   Connect via: nmcli dev wifi connect <SSID> password <PASS>"
-  fi
-}
-
-# ---------------------------
-# STOW: prevent ~/.local folding (unchanged)
+# STOW FOLDING FIX
 # ---------------------------
 
 unfold_local_if_broken() {
@@ -459,14 +283,12 @@ unfold_local_if_broken() {
 }
 
 # ---------------------------
-# PATCH HARD-CODED HOME PATHS (FIXED)
+# PATCH /home/william PATHS
 # ---------------------------
 
 patch_home_paths() {
   local from="/home/william"
   local to="$HOME"
-  local file_from="file:///home/william"
-  local file_to="file:///${HOME#/}" # ensures file:///home/<user> (NOT file:////home/<user>)
 
   local files=(
     "$HOME/.config/waybar/style.css"
@@ -479,8 +301,8 @@ patch_home_paths() {
   for f in "${files[@]}"; do
     [[ -f "$f" ]] || continue
     sed -i \
-      -e "s|${file_from}|${file_to}|g" \
-      -e "s|${from}|${to}|g" \
+      -e "s|file:///home/william|file://$to|g" \
+      -e "s|$from|$to|g" \
       "$f" || true
   done
 }
@@ -497,25 +319,26 @@ if ! need_cmd pacman; then
   exit 1
 fi
 
-# 0) Ensure network works for pacman/git
+# 0) Network must be good BEFORE touching mirrors/pacman
 preflight_network_or_die
 
-# 1) Reliable mirrors (baseline + official + tested)
-refresh_pacman_mirrors_every_time
+# 1) Mirror refresh (reflector preferred)
+refresh_mirrors_reflector_first
+prune_bad_mirrors_best_effort
 
 # 2) Base deps
 pacman_retry -Syyu --needed --noconfirm git stow base-devel curl
 
-# 3) Critical runtime tools
+# 3) Ensure critical runtime tools (these are used by your scripts)
 pacman_retry -S --needed --noconfirm swww networkmanager
 
-# 4) Pacman packages
+# 4) Pacman packages from list
 read_pkg_list PAC_PKGS "$PACMAN_LIST"
 if ((${#PAC_PKGS[@]} > 0)); then
   pacman_retry -S --needed --noconfirm "${PAC_PKGS[@]}"
 fi
 
-# 5) AUR packages
+# 5) AUR packages from list
 read_pkg_list AUR_PKGS "$AUR_LIST"
 if ((${#AUR_PKGS[@]} > 0)); then
   install_yay_if_missing
@@ -523,17 +346,7 @@ if ((${#AUR_PKGS[@]} > 0)); then
   yay -S --needed --noconfirm "${AUR_PKGS[@]}"
 fi
 
-# 6) Enable NetworkManager + migrate ISO Wi-Fi so reboot works
-enable_nm_and_takeover_network
-
-# 7) Enable key services if present
-if need_cmd systemctl; then
-  if pacman -Qi power-profiles-daemon >/dev/null 2>&1; then
-    sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null || true
-  fi
-fi
-
-# 8) Greeter (greetd) if none detected
+# 6) Greeter install (DO THIS BEFORE any network takeover/restarts)
 has_greeter=false
 if need_cmd systemctl; then
   systemctl is-enabled --quiet display-manager.service && has_greeter=true || true
@@ -545,12 +358,7 @@ fi
 if [[ "$has_greeter" == "false" ]]; then
   echo "==> No greeter detected. Installing greetd + greetd-tuigreet..."
   pacman_retry -S --needed --noconfirm greetd
-
-  if pacman -Si greetd-tuigreet >/dev/null 2>&1; then
-    pacman_retry -S --needed --noconfirm greetd-tuigreet
-  else
-    pacman_retry -S --needed --noconfirm tuigreet
-  fi
+  pacman_retry -S --needed --noconfirm greetd-tuigreet
 
   echo "==> Configuring /etc/greetd/config.toml ..."
   sudo install -d -m 0755 /etc/greetd
@@ -566,7 +374,18 @@ EOF
   sudo systemctl enable greetd.service
 fi
 
-# 9) Backups (non-symlinks)
+# 7) Enable key services (NOW it is safe to touch NM)
+if need_cmd systemctl; then
+  if pacman -Qi networkmanager >/dev/null 2>&1; then
+    sudo systemctl enable --now NetworkManager.service >/dev/null 2>&1 || true
+  fi
+
+  if pacman -Qi power-profiles-daemon >/dev/null 2>&1; then
+    sudo systemctl enable --now power-profiles-daemon.service >/dev/null 2>&1 || true
+  fi
+fi
+
+# 8) Backups (non-symlinks)
 mkdir -p "$BACKUP_DIR/.config" "$BACKUP_DIR/.local"
 
 backup_if_exists() {
@@ -582,22 +401,22 @@ for d in hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts; d
 done
 backup_if_exists "$HOME/.local/bin"
 
-# 10) Unfold ~/.local if broken from prior runs
+# 9) Unfold ~/.local if broken from prior runs
 unfold_local_if_broken
 
-# 11) Stow packages
+# 10) Stow packages
 cd "$REPO_DIR"
 for pkg in hypr waybar kitty nvim walker wlogout Thunar gtk-3.0 gtk-4.0 scripts; do
   [[ -d "$REPO_DIR/$pkg" ]] && stow -v "$pkg"
 done
 [[ -d "$REPO_DIR/bin" ]] && stow --no-folding -v bin
 
-# 12) Seed monitors override if missing
+# 11) Seed monitors override if missing
 if [[ ! -f "$HOME/.config/hypr/monitors.local.conf" ]] && [[ -f "$REPO_DIR/hypr/.config/hypr/monitors.local.conf.example" ]]; then
   cp "$REPO_DIR/hypr/.config/hypr/monitors.local.conf.example" "$HOME/.config/hypr/monitors.local.conf"
 fi
 
-# 13) Seed wal-generated configs if missing
+# 12) Seed wal-generated configs if missing
 if [[ ! -f "$HOME/.config/hypr/wal-colors.conf" ]] && [[ -f "$REPO_DIR/hypr/.config/hypr/wal-colors.conf.example" ]]; then
   cp "$REPO_DIR/hypr/.config/hypr/wal-colors.conf.example" "$HOME/.config/hypr/wal-colors.conf"
 fi
@@ -605,10 +424,10 @@ if [[ ! -f "$HOME/.config/hypr/wal-hyprlock.conf" ]] && [[ -f "$REPO_DIR/hypr/.c
   cp "$REPO_DIR/hypr/.config/hypr/wal-hyprlock.conf.example" "$HOME/.config/hypr/wal-hyprlock.conf"
 fi
 
-# 14) Patch hardcoded home paths (fixes username portability + file:/// correctness)
+# 13) Patch hardcoded /home/william paths
 patch_home_paths
 
-# 15) Seed pywal cache for Waybar if missing
+# 14) Seed pywal cache for Waybar if missing
 mkdir -p "$HOME/.cache/wal"
 if [[ ! -f "$HOME/.cache/wal/colors-waybar.css" ]]; then
   cat >"$HOME/.cache/wal/colors-waybar.css" <<'EOF'
@@ -640,7 +459,7 @@ if [[ "$has_greeter" == "false" ]]; then
   echo "==> greetd enabled. Reboot to use the greeter: sudo reboot"
 fi
 
-# 16) Prompt: optionally install wallpapers
+# 15) Prompt: optionally install wallpapers
 echo
 echo "==> Wallpaper picker note:"
 echo "    Super+W expects wallpapers in: $HOME/Pictures/wallpapers"
