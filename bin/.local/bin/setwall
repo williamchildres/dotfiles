@@ -7,15 +7,40 @@ if [ -z "$img" ]; then
   exit 1
 fi
 
+if [ ! -f "$img" ]; then
+  echo "Error: file does not exist: $img"
+  exit 1
+fi
+
+# Resolve to absolute path
+img="$(realpath "$img")"
+
 # 1. gsettings
 gsettings set org.gnome.desktop.interface icon-theme 'Papirus-Dark'
 gsettings set org.gnome.desktop.interface gtk-theme 'adw-gtk3-dark'
 gsettings set org.gnome.desktop.interface font-name 'Hack Nerd Font 10'
 gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
 
-# 2. Set wallpaper (example: swww)
-swww init 2>/dev/null
-swww img "$img" --transition-type any --transition-step 60
+# 2. Set wallpaper with awww
+if ! command -v awww >/dev/null 2>&1; then
+  echo "Error: awww is not installed or not in PATH."
+  echo "Install it with: yay -S awww"
+  exit 1
+fi
+
+if ! command -v awww-daemon >/dev/null 2>&1; then
+  echo "Error: awww-daemon is not installed or not in PATH."
+  echo "Install it with: yay -S awww"
+  exit 1
+fi
+
+# Start daemon if it is not already running
+if ! awww query >/dev/null 2>&1; then
+  awww-daemon >/tmp/awww-daemon.log 2>&1 &
+  sleep 0.5
+fi
+
+awww img "$img" --transition-type any --transition-step 60
 
 # 3. Generate wal colors (no terminal preview)
 wal -i "$img" -n
